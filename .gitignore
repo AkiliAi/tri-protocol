@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+lerna-debug.log*
+packages/*/dist/
+packages/*/coverage/
+.vscode/
+.idea/
+*.swp
+*.swo

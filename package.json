@@ -1,0 +1,56 @@
+{
+  "name": "tri-protocol",
+  "version": "1.0.0",
+  "description": "A2A Protocol (Communication) +  LangGraph (Orchestration) +  MCP (Tools &amp; Resources) =  🔥 TRI-PROTOCOL FRAMEWORK 🔥",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "main": "index.js",
+  "scripts": {
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "clean": "lerna clean",
+    "test": "lerna run test --stream",
+    "lint": "lerna run lint --stream",
+    "dev": "lerna run dev ",
+    "version": "lerna version ",
+    "prepare": "husky install",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "type-check": "tsc --noEmit"
+
+  },
+  "keywords": ["autonomous",
+    "agents",
+    "llm",
+    "ai",
+    "typescript",
+    "agentic"],
+  "author": "by YmC @Tri-Protocol",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "@types/ws": "^8.5.10",
+    "@types/express": "^5.0.3",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "lerna": "^8.2.3",
+    "husky": "^8.0.3",
+    "typescript": "^5.9.2",
+    "prettier": "^3.1.0",
+    "ts-node": "^10.9.1",
+    "eslint": "^8.55.0",
+    "nodemon": "^3.1.0",
+    "axios": "^1.6.8",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "eventemitter3": "^5.0.1",
+    "express": "^5.1.0"
+  },
+  "dependencies": {
+
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+
+  }
+}

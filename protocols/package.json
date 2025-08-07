@@ -1,12 +1,36 @@
 {
   "name": "protocols",
+  "description": "",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "bootstrap": "lerna bootstrap",
+    "build": "lerna run build",
+    "clean": "lerna clean",
+    "test": "lerna run test --stream",
+    "lint": "lerna run lint --stream",
+    "dev": "lerna run dev ",
+    "version": "lerna version ",
+    "prepare": "husky install",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "type-check": "tsc --noEmit"
   },
-  "keywords": [],
+  "keywords": [
+    "autonomous",
+    "agents",
+    "llm",
+    "ai",
+    "typescript",
+    "agentic"
+  ],
   "author": "YmC @Tri-Protocol",
   "license": "MIT",
-  "description": ""
+  "devDependencies": {
+
+  },
+  "engines": {
+
+  }
+
+
 }

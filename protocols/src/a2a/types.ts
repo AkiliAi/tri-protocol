@@ -1,7 +1,8 @@
+//tri-protocol/protocols/src/a2a/types.ts
 /**
  * A2A Protocol Types & Interfaces
  * Agent-to-Agent Communication Protocol Core Types
- * Fist Core Protocol of the Tri Protocol
+ * Fist Core (Alpha) Protocol of the Tri Protocol
  */
 
 
@@ -18,7 +19,7 @@ export interface AgentProvider {
 // Agent Capabilities & Discovery
 // ================================
 
-export interface AgentCapabilities {
+export interface AgentSystemFeatures{
     streaming?: boolean;
     pushNotifications?: boolean;
     stateTransitionHistory?: boolean;
@@ -197,11 +198,13 @@ export interface AgentCard {
     provider?: AgentProvider; // Information about the agent provider
     version?: string; // Version of the agent
     documentationUrl?: string; // URL to the agent's documentation
-    capabilities?: AgentCapabilities; // Capabilities of the agent
+    // capabilities?: AgentCapability; // Capabilities of the agent
+    systemFeatures?: AgentSystemFeatures[]; // System features supported by the agent
     securitySchemes?: SecurityScheme[]; // Security schemes supported by the agent
     defaultInputMode?: string; // Default input mode for the agent
     defaultOutputMode?: string; // Default output mode for the agent
     skills: AgentSkill[]; // Skills supported by the agent
+    capabilities: AgentCapability[]; // Optinoal  Capabilities of the agent
     supportsAuthenticatedExtendedCard?: boolean; // Whether the agent supports authenticated extended cards
     signature?: AgentCardSignature[]; // Signature for the agent card
 }
@@ -210,7 +213,8 @@ export interface AgentProfile {
     agentId: string;
     agentType: string;
     status: AgentStatus;
-    capabilities: AgentCapabilities[];
+    capabilities: AgentCapability[];
+    systemeFeatures: AgentSystemFeatures[];
     metadata: AgentMetadata;
     lastSeen: Date;
     networkAddress?: string;
@@ -539,6 +543,12 @@ export interface JSONRPCMessage {
     readonly jsonrpc: "2.0";
 
     id?: number | string | null;
+    method?: string; // Only present in requests
+    params?: unknown; // Only present in requests
+    result?: unknown; // Only present in success responses
+    error?: JSONRPCError | A2AError; // Only present in error responses
+
+
 }
 export interface JSONRPCRequest extends JSONRPCMessage {
     method: string;
@@ -561,11 +571,6 @@ export interface JSONRPCErrorResponse extends JSONRPCMessage {
     id: number | string | null;
     result?: never;
     error: JSONRPCError |A2AError;
-}
-export interface SendMessageRequest extends JSONRPCRequest {
-    id: number | string;
-    readonly method: "message/send";
-    params: MessageSendParameters;
 }
 export type JSONRPCResponse =
     | SendMessageResponse
@@ -800,16 +805,16 @@ export interface TaskNotCancelableError extends JSONRPCError {
 }
 
 export interface PushNotificationNotSupportedError extends JSONRPCError {
-    readonly code: -32007; //-32003
+    readonly code: -1007; //-32003
     message: string;
 }
 export interface UnsupportedOperationError extends JSONRPCError {
-    readonly code: -32008; //-32004
+    readonly code: -1008; //-32004
     message: string;
 }
 export interface ContentTypeNotSupportedError extends JSONRPCError {
-    /** The error code for an unsupported content type. */
-    readonly code: -32009; //-32005
+
+    readonly code: -1009; //-32005
     message: string;
 }
 
@@ -818,11 +823,14 @@ export interface InvalidAgentResponseError extends JSONRPCError {
     message: string;
 }
 
-export interface AuthenticatedExtendedCardNotConfiguredError
-    extends JSONRPCError {
+export interface AuthenticatedExtendedCardNotConfiguredError extends JSONRPCError {
     readonly code: -1011; //-32007
     message: string;
 }
+
+// ================================
+// A2A Error Types  choix N#1
+// ================================
 // export type A2AError =
 //     | JSONParseError
 //     | InvalidRequestError
@@ -940,14 +948,17 @@ export interface A2AConfig {
 }
 
 // ================================
-// Error Types
+// Error Types ou A2AError Choix N#2
 // ================================
+
+// Custom error types for A2A protocol
 
 export class A2AError extends Error {
 
     constructor(
         message: string,
-        public code: string,
+        // public code: string,
+        public code: any,
         public agentId?: string,
         public messageId?: string
     ) {
@@ -955,7 +966,6 @@ export class A2AError extends Error {
         this.name = 'A2AError';
     }
 }
-
 
 export class AgentNotFoundError extends A2AError {
     constructor(agentId: string) {
@@ -974,3 +984,110 @@ export class WorkflowExecutionError extends A2AError {
         super(`Workflow execution failed: ${error}`, 'WORKFLOW_FAILED');
     }
 }
+
+export class TaskExecutionError extends A2AError {
+    constructor(taskId: string, error: string) {
+        super(`Task execution failed: ${error}`, 'TASK_EXECUTION_FAILED', undefined, taskId);
+    }
+}
+
+// ================================
+// A2A Error Types  choix N#1
+// ================================
+// export type A2AError =
+//     | JSONParseError
+//     | InvalidRequestError
+//     | MethodNotFoundError
+//     | InvalidParamsError
+//     | InternalError
+//     | TaskNotFoundError
+//     | TaskNotCancelableError
+//     | PushNotificationNotSupportedError
+//     | UnsupportedOperationError
+//     | ContentTypeNotSupportedError
+//     | InvalidAgentResponseError
+//     | AuthenticatedExtendedCardNotConfiguredError;
+
+
+export class JSONParseError extends A2AError {
+    constructor(message: string) {
+        super(message, "JSON_PARSE_ERROR");
+        this.name = 'JSONParseError';
+    }
+}
+export class InvalidRequestError extends A2AError {
+    constructor(message: string) {
+        super(message, "INVALID_REQUEST");
+        this.name = 'InvalidRequestError';
+    }
+}
+export class MethodNotFoundError extends A2AError {
+    constructor(message: string) {
+        super(message, "METHOD_NOT_FOUND");
+        this.name = 'MethodNotFoundError';
+    }
+}
+export class InvalidParamsError extends A2AError {
+    constructor(message: string) {
+        super(message, "INVALID_PARAMS");
+        this.name = 'InvalidParamsError';
+    }
+}
+export class InternalError extends A2AError {
+    constructor(message: string) {
+        super(message, "INTERNAL_ERROR");
+        this.name = 'InternalError';
+    }
+}
+export class TaskNotFoundError extends A2AError {
+    constructor(taskId: string) {
+        super(`Task not found: ${taskId}`, "TASK_NOT_FOUND", undefined, taskId);
+        this.name = 'TaskNotFoundError';
+    }
+}
+
+export class TaskNotCancelableError extends A2AError {
+    constructor(taskId: string) {
+        super(`Task not cancelable: ${taskId}`, "TASK_NOT_CANCELABLE", undefined, taskId);
+        this.name = 'TaskNotCancelableError';
+    }
+}
+
+export class PushNotificationNotSupportedError extends A2AError {
+    constructor() {
+        super("Push notifications not supported", "PUSH_NOTIFICATION_NOT_SUPPORTED");
+        this.name = 'PushNotificationNotSupportedError';
+    }
+}
+
+export class UnsupportedOperationError extends A2AError {
+    constructor(message: string) {
+        super(message, "UNSUPPORTED_OPERATION");
+        this.name = 'UnsupportedOperationError';
+    }
+}
+
+export class ContentTypeNotSupportedError extends A2AError {
+    constructor(contentType: string) {
+        super(`Content type not supported: ${contentType}`, "CONTENT_TYPE_NOT_SUPPORTED");
+        this.name = 'ContentTypeNotSupportedError';
+    }
+}
+
+export class InvalidAgentResponseError extends A2AError {
+    constructor(message: string) {
+        super(message, "INVALID_AGENT_RESPONSE");
+        this.name = 'InvalidAgentResponseError';
+    }
+}
+
+export class AuthenticatedExtendedCardNotConfiguredError extends A2AError {
+    constructor() {
+        super("Authenticated extended card not configured", "AUTHENTICATED_EXTENDED_CARD_NOT_CONFIGURED");
+        this.name = 'AuthenticatedExtendedCardNotConfiguredError';
+    }
+}
+
+
+
+

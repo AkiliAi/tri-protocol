@@ -6,7 +6,7 @@ import {
     Message,
     Task,
     Part
-} from '@tri-protocol/protocols/a2a';
+} from '@tri-protocol/types';
 import { A2AAgentServer } from '@tri-protocol/protocols/a2a';
 
 export class A2ATriAgentBridge {

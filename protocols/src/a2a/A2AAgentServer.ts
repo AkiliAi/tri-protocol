@@ -1,7 +1,7 @@
 /**
  * A2A Protocol Agent Server
  * Agent-to-Agent (A2A) communication server implementation.
- * Serer JSONRPC, GRPC,
+ * Server JSONRPC, GRPC,
  *Fist Core (Alpha) Protocol of the Tri Protocol
  */
 

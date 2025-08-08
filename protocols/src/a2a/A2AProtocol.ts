@@ -1,16 +1,16 @@
-//protocols/src/a2a/A2AProtocolAdapter.ts
+//protocols/src/a2a/A2AProtocol.ts
 /**
  * A2A Protocol Adapter -
  * Agent-to-Agent communication protocol adapter for the Tri Protocol.
  * This adapter allows agents to communicate with each other using the Tri Protocol.
  * Fist Core (Alpha) Protocol of the Tri Protocol
  */
-// packages/protocols/src/a2a/A2AProtocolAdapter.ts
+// packages/protocols/src/a2a/A2AProtocol.ts
 import { EventEmitter } from 'eventemitter3';
 import axios ,{AxiosInstance} from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
-import jwt from 'jsonwebtoken';
+
 
 import {
     AgentCard,

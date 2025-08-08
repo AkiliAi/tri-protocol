@@ -86,6 +86,35 @@ export interface SecuritySchemeBase {
     //operation description for the security scheme
     description?: string;
 }
+export interface SecurityCredentials{
+    // Credentials for API Key authentication
+    apiKey?: string;
+
+    // Credentials for HTTP authentication
+    token?: string;
+    username?: string;
+    password?: string;
+
+    // Credentials for OAuth2
+    accessToken?: string;
+    refreshToken?: string;
+    clientId?: string;
+    clientSecret?: string;
+
+    // Credentials for OpenID Connect
+    idToken?: string;
+
+    // Credentials for Mutual TLS
+    clientCertificate?: string;
+    clientKey?: string;
+
+    // General fields
+    expiresAt?: Date;
+    scope?: string[];
+    metadata?: { [key: string]: any };
+
+}
+
 
 export interface APIKeySecurityScheme extends SecuritySchemeBase {
     readonly  type: 'apiKey';
@@ -321,6 +350,30 @@ export interface TaskIdParameters {
     metadata?: { [key: string]: any };
 }
 
+export interface InMemoryTaskStore {
+    tasks: Map<string, Task>;
+    TasksByContextId: Map<string, Task[]>;
+    artifacts: Map<string, Artifact[]>;
+    pushConfigs: Map<string, TaskPushNotificationConfig>;
+    metrics: Map<string, {
+        createdAt: Date;
+        lastUpdated: Date;
+        executionTime?: number;
+        attempts: number;
+    }>
+    // Méthodes de gestion
+    addTask(task: Task): void;
+    getTask(taskId: string): Task | undefined;
+    updateTaskStatus(taskId: string, status: TaskStatus): boolean;
+    removeTask(taskId: string): boolean;
+    getTasksByContext(contextId: string): Task[];
+    getTasksByStatus(status: TaskState): Task[];
+    addArtifact(taskId: string, artifact: Artifact): boolean;
+    getArtifacts(taskId: string): Artifact[];
+    cleanup(olderThan: Date): number; // Retourne le nombre de tâches supprimées
+
+
+}
 export interface Artifact {
     artifactId: string;
     name?: string;

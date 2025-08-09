@@ -1,8 +1,8 @@
 //protocols/src/a2a/A2AProtocol.ts
 /**
- * A2A Protocol Adapter -
+ * A2A Protocol
  * Agent-to-Agent communication protocol adapter for the Tri Protocol.
- * This adapter allows agents to communicate with each other using the Tri Protocol.
+ * This allows agents to communicate with each other using the Tri Protocol.
  * Fist Core (Alpha) Protocol of the Tri Protocol
  */
 // packages/protocols/src/a2a/A2AProtocol.ts

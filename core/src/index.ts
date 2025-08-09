@@ -13,4 +13,4 @@ export { TriOrchestrator } from './TriOrchestrator';
 // @ts-ignore
 export { TriRegistry } from './TriRegistry';
 
-export * from './types';
+// export * from './types';

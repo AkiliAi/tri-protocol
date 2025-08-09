@@ -1,79 +1,104 @@
-// packages/core/src/integrations/A2ATriAgentIntegration.ts
+
+
+
+// packages/core/src/TriAgent.ts
+import { EventEmitter } from 'eventemitter3';
 import {
-    AgentCard,
+    AgentProfile,
     AgentCapability,
-    AgentSkill,
+    AgentStatus,
     Message,
-    Task,
-    Part
-} from '@tri-protocol/types';
-import { A2AAgentServer } from '@tri-protocol/protocols/a2a';
+    Task
+} from '../../tri-protocol/protocols/a2a/types';
 
-export class A2ATriAgentBridge {
-    private server: A2AAgentServer;
+export interface TriAgentConfig {
+    id: string;
+    name: string;
+    description: string;
+    capabilities: AgentCapability[];
+    systemFeatures?: {
+        streaming?: boolean;
+        pushNotifications?: boolean;
+    };
+}
 
-    // Convert TriAgent to AgentCard
-    static createAgentCard(triAgent: TriAgent): AgentCard {
-        const capabilities = triAgent.getCapabilities();
+export abstract class TriAgent extends EventEmitter {
+    protected config: TriAgentConfig;
+    protected status: AgentStatus = AgentStatus.OFFLINE;
+    protected triProtocol?: any; // TriProtocol instance
 
-        return {
-            protocolVersion: '1.0',
-            name: triAgent.name,
-            description: triAgent.description,
-            url: `http://localhost:${8080 + Math.floor(Math.random() * 1000)}`,
-            preferredTransport: TransportProtocol.JSONRPC,
-            version: '1.0.0',
-            capabilities: {
-                streaming: true,
-                pushNotifications: true
-            },
-            skills: capabilities.map(cap => ({
-                id: cap.id,
-                name: cap.name,
-                description: cap.description,
-                tags: cap.tags
-            })),
-            securitySchemes: [
-                {
-                    type: 'http',
-                    scheme: 'bearer'
-                }
-            ]
-        };
+    constructor(config: TriAgentConfig) {
+        super();
+        this.config = config;
     }
 
-    // Setup A2A server for TriAgent
-    async setupA2AServer(triAgent: TriAgent, port: number): Promise<A2AAgentServer> {
-        const agentCard = A2ATriAgentBridge.createAgentCard(triAgent);
-        const server = new A2AAgentServer(agentCard, port);
+    async connect(triProtocol: any): Promise<void> {
+        this.triProtocol = triProtocol;
 
-        // Register message handler
-        server.registerMessageHandler(async (message: Message) => {
-            // Convert A2A message to TriAgent format
-            const response = await triAgent.handleA2AMessage({
-                id: message.messageId,
-                from: 'user',
-                to: triAgent.id,
-                type: A2AMessageType.TASK_REQUEST,
-                payload: message,
-                timestamp: new Date(),
-                priority: 'normal'
-            });
+        // Register with A2A Protocol
+        const profile: AgentProfile = {
+            agentId: this.config.id,
+            agentType: this.constructor.name,
+            status: AgentStatus.ONLINE,
+            capabilities: this.config.capabilities,
+            systemFeatures: [{
+                streaming: this.config.systemFeatures?.streaming || false,
+                pushNotifications: this.config.systemFeatures?.pushNotifications || false
+            }],
+            metadata: {
+                version: '1.0.0',
+                location: `agent://${this.config.id}`,
+                load: 0,
+                uptime: Date.now(),
+                capabilities_count: this.config.capabilities.length
+            },
+            lastSeen: new Date()
+        };
 
-            // Convert response back to A2A format
-            return {
-                role: 'agent',
-                parts: [
-                    {
-                        kind: 'text',
-                        text: response.data
-                    }
-                ],
-                messageId: uuidv4(),
-                kind: 'message'
-            };
+        await triProtocol.registerAgent(profile);
+        this.status = AgentStatus.ONLINE;
+
+        this.emit('connected');
+    }
+
+    async disconnect(): Promise<void> {
+        if (this.triProtocol) {
+            await this.triProtocol.unregisterAgent(this.config.id);
+        }
+        this.status = AgentStatus.OFFLINE;
+        this.emit('disconnected');
+    }
+
+    // Abstract methods to implement
+    abstract processMessage(message: Message): Promise<Message | Task>;
+    abstract processTask(task: Task): Promise<void>;
+
+    // Helper methods for inter-agent communication
+    protected async sendToAgent(targetAgentId: string, message: any): Promise<any> {
+        if (!this.triProtocol) {
+            throw new Error('Agent not connected to TriProtocol');
+        }
+
+        return this.triProtocol.sendMessage(targetAgentId, {
+            role: 'agent',
+            parts: [{
+                kind: 'data',
+                data: message
+            }],
+            messageId: Date.now().toString(),
+            kind: 'message'
         });
+    }
 
-        return server;
+    protected async discoverAgents(capability?: string): Promise<AgentProfile[]> {
+        if (!this.triProtocol) {
+            throw new Error('Agent not connected to TriProtocol');
+        }
+
+        if (capability) {
+            return this.triProtocol.findAgentsByCapability(capability);
+        }
+
+        return this.triProtocol.getRegisteredAgents();
     }
 }

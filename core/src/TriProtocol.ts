@@ -1,16 +1,24 @@
-// packages/core/src/TriProtocol.ts
+// core/src/TriProtocol.ts
 import { EventEmitter } from 'eventemitter3';
-import { A2AProtocol } from 'tri-protocol/protocols/a2a';
-import { LangGraphProtocol } from 'tri-protocol/protocols/langgraph';
-import { MCPProtocol } from 'tri-protocol/protocols/mcp';
+import { A2AProtocol } from '@protocols/a2a/A2AProtocol';
+import {
+    AgentCard,
+    AgentProfile,
+    Message,
+    Task,
+    A2AMessage
+} from '@protocols/a2a/types';
 
 export interface TriProtocolConfig {
     name: string;
     version: string;
+    baseUrl?: string;
     protocols: {
         a2a?: {
             enabled: boolean;
-            config?: any;
+            agentCard?: Partial<AgentCard>;
+            security?: any;
+            network?: any;
         };
         langgraph?: {
             enabled: boolean;
@@ -26,52 +34,61 @@ export interface TriProtocolConfig {
 export class TriProtocol extends EventEmitter {
     private config: TriProtocolConfig;
     private a2aProtocol?: A2AProtocol;
-    private langGraphProtocol?: LangGraphProtocol;
-    private mcpProtocol?: MCPProtocol;
+    private isInitialized = false;
 
     constructor(config: TriProtocolConfig) {
         super();
         this.config = config;
-        this.initializeProtocols();
     }
 
-    private async initializeProtocols(): Promise<void> {
+    async initialize(): Promise<void> {
+        if (this.isInitialized) return;
+
+        console.log('🚀 Initializing Tri-Protocol...');
+
         // Initialize A2A Protocol
         if (this.config.protocols.a2a?.enabled) {
             await this.initializeA2A();
         }
 
-        // Initialize LangGraph Protocol (future)
+        // Future: Initialize LangGraph
         if (this.config.protocols.langgraph?.enabled) {
-            await this.initializeLangGraph();
+            // await this.initializeLangGraph();
         }
 
-        // Initialize MCP Protocol (future)
+        // Future: Initialize MCP
         if (this.config.protocols.mcp?.enabled) {
-            await this.initializeMCP();
+            // await this.initializeMCP();
         }
 
         this.setupCrossProtocolBridge();
+        this.isInitialized = true;
+
+        console.log('✅ Tri-Protocol initialized successfully');
+        this.emit('initialized');
     }
 
     private async initializeA2A(): Promise<void> {
-        const { A2AProtocol } = await import('@tri-protocol/protocols/a2a');
+        const defaultAgentCard: AgentCard = {
+            protocolVersion: '1.0',
+            name: `${this.config.name}-system`,
+            description: 'Tri-Protocol System with A2A capabilities',
+            url: this.config.baseUrl || 'http://localhost:8080',
+            preferredTransport: 'JSONRPC',
+            skills: [],
+            capabilities: [],
+            systemFeatures: {
+                streaming: true,
+                pushNotifications: false
+            },
+            securitySchemes: [],
+            ...this.config.protocols.a2a?.agentCard
+        };
 
         this.a2aProtocol = new A2AProtocol({
-            agentCard: {
-                protocolVersion: '1.0',
-                name: `${this.config.name}-a2a`,
-                description: 'A2A Protocol for Tri-Protocol System',
-                url: 'http://localhost:8080',
-                preferredTransport: 'JSONRPC',
-                skills: [],
-                capabilities: [],
-                systemFeatures: {
-                    streaming: true,
-                    pushNotifications: false
-                }
-            },
-            ...this.config.protocols.a2a?.config
+            agentCard: defaultAgentCard,
+            security: this.config.protocols.a2a?.security,
+            network: this.config.protocols.a2a?.network
         });
 
         this.setupA2AEventHandlers();
@@ -81,78 +98,109 @@ export class TriProtocol extends EventEmitter {
     private setupA2AEventHandlers(): void {
         if (!this.a2aProtocol) return;
 
-        // Forward A2A events to TriProtocol level
-        this.a2aProtocol.on('agent:registered', (agent) => {
-            this.emit('protocol:a2a:agent:registered', agent);
+        // Forward A2A events with tri-protocol prefix
+        this.a2aProtocol.on('agent:registered', (agent: AgentProfile) => {
+            this.emit('tri:a2a:agent:registered', agent);
         });
 
-        this.a2aProtocol.on('message:sent', (message) => {
-            this.emit('protocol:a2a:message:sent', message);
+        this.a2aProtocol.on('agent:unregistered', (agentId: string) => {
+            this.emit('tri:a2a:agent:unregistered', agentId);
         });
 
-        // ... other event mappings
+        this.a2aProtocol.on('message:sent', (data: any) => {
+            this.emit('tri:a2a:message:sent', data);
+        });
+
+        this.a2aProtocol.on('task:completed', (task: Task) => {
+            this.emit('tri:a2a:task:completed', task);
+        });
     }
 
     private setupCrossProtocolBridge(): void {
-        // Bridge events between protocols
-        this.on('protocol:a2a:capability:discovered', async (capability) => {
-            // When A2A discovers a capability, register it with MCP
-            if (this.mcpProtocol) {
-                await this.mcpProtocol.registerTool({
-                    name: capability.name,
-                    description: capability.description,
-                    execute: async (params) => {
-                        // Use A2A to execute the capability
-                        const agent = await this.a2aProtocol.findAgentsByCapability(capability.name);
-                        return this.a2aProtocol.sendMessage(agent[0].agentId, params);
-                    }
-                });
+        // Bridge capabilities between protocols
+        this.on('tri:a2a:capability:discovered', async (capability) => {
+            // When A2A discovers a capability, it can be exposed to MCP
+            this.emit('tri:capability:available', {
+                protocol: 'a2a',
+                capability
+            });
+        });
+
+        // Future: Bridge LangGraph workflows with A2A agents
+        this.on('tri:langgraph:workflow:step', async (step) => {
+            if (step.requiresAgent && this.a2aProtocol) {
+                const agents = await this.a2aProtocol.findAgentsByCapability(step.capability);
+                // Route workflow step to appropriate agent
             }
         });
     }
 
-    // Public API
-    async registerAgent(agentConfig: any): Promise<void> {
+    // === A2A Protocol Methods ===
+
+    async registerAgent(profile: AgentProfile): Promise<void> {
         if (!this.a2aProtocol) {
             throw new Error('A2A Protocol not enabled');
         }
-
-        return this.a2aProtocol.registerAgent(agentConfig);
+        return this.a2aProtocol.registerAgent(profile);
     }
 
-    async sendMessage(targetAgentId: string, message: any): Promise<any> {
+    async unregisterAgent(agentId: string): Promise<void> {
         if (!this.a2aProtocol) {
             throw new Error('A2A Protocol not enabled');
         }
-
-        return this.a2aProtocol.sendMessage(targetAgentId, message);
+        return this.a2aProtocol.unregisterAgent(agentId);
     }
 
-    async createWorkflow(definition: any): Promise<any> {
-        if (!this.langGraphProtocol) {
-            throw new Error('LangGraph Protocol not enabled');
+    async sendMessage(targetAgentId: string, message: Message, config?: any): Promise<Task | Message> {
+        if (!this.a2aProtocol) {
+            throw new Error('A2A Protocol not enabled');
         }
-
-        return this.langGraphProtocol.createWorkflow(definition);
+        return this.a2aProtocol.sendMessage(targetAgentId, message, config);
     }
 
-    async createLLMSession(config: any): Promise<any> {
-        if (!this.mcpProtocol) {
-            throw new Error('MCP Protocol not enabled');
+    async findAgentsByCapability(capability: string): Promise<AgentProfile[]> {
+        if (!this.a2aProtocol) {
+            throw new Error('A2A Protocol not enabled');
         }
-
-        return this.mcpProtocol.createSession(config);
+        return this.a2aProtocol.findAgentsByCapability(capability);
     }
+
+    async routeMessage(message: A2AMessage): Promise<any> {
+        if (!this.a2aProtocol) {
+            throw new Error('A2A Protocol not enabled');
+        }
+        return this.a2aProtocol.routeMessage(message);
+    }
+
+    // === Status and Monitoring ===
 
     getStatus(): any {
         return {
             name: this.config.name,
             version: this.config.version,
+            initialized: this.isInitialized,
             protocols: {
-                a2a: this.a2aProtocol ? 'active' : 'disabled',
-                langgraph: this.langGraphProtocol ? 'active' : 'disabled',
-                mcp: this.mcpProtocol ? 'active' : 'disabled'
+                a2a: this.a2aProtocol ? {
+                    enabled: true,
+                    agents: this.a2aProtocol.getRegisteredAgents().length,
+                    tasks: this.a2aProtocol.getActiveTasks().length
+                } : { enabled: false },
+                langgraph: { enabled: false }, // Future
+                mcp: { enabled: false } // Future
             }
         };
+    }
+
+    async shutdown(): Promise<void> {
+        console.log('🛑 Shutting down Tri-Protocol...');
+
+        if (this.a2aProtocol) {
+            await this.a2aProtocol.shutdown();
+        }
+
+        this.removeAllListeners();
+        this.isInitialized = false;
+
+        console.log('✅ Tri-Protocol shutdown complete');
     }
 }

@@ -1,72 +1,27 @@
-// // packages/core/src/TriOrchestrator.ts
-// export class TriOrchestrator {
-//     private agents: Map<string, TriAgent> = new Map();
-//     private workflows: Map<string, TriWorkflow> = new Map();
-//     private protocolAdapters: ProtocolAdapters;
-//     private messageQueue: PriorityQueue<OrchestratorMessage>;
-//     private executionEngine: WorkflowExecutionEngine;
-//
-//     constructor(config: TriProtocolConfig) {
-//         this.initializeAdapters(config.protocols);
-//         this.messageQueue = new PriorityQueue();
-//         this.executionEngine = new WorkflowExecutionEngine();
-//     }
-//
-//     // Agent orchestration
-//     async routeMessage(from: string, to: string, message: any): Promise<any> {
-//         const targetAgent = this.agents.get(to);
-//         if (!targetAgent) {
-//             throw new Error(`Agent ${to} not found`);
-//         }
-//
-//         // Determine best protocol for communication
-//         const protocol = this.selectProtocol(from, to, message);
-//
-//         switch (protocol) {
-//             case 'a2a':
-//                 return this.protocolAdapters.a2a.sendMessage(from, to, message);
-//             case 'direct':
-//                 return targetAgent.handleDirectMessage(message);
-//             default:
-//                 return this.fallbackCommunication(from, to, message);
-//         }
-//     }
-//
-//     // Workflow orchestration
-//     async executeWorkflow(workflow: TriWorkflow): Promise<WorkflowResult> {
-//         // Create execution context
-//         const context = this.createExecutionContext(workflow);
-//
-//         // Execute via LangGraph adapter
-//         const result = await this.protocolAdapters.langgraph.execute(
-//             workflow.graph,
-//             workflow.state,
-//             context
-//         );
-//
-//         // Post-process results
-//         return this.processWorkflowResult(result);
-//     }
-//
-//     // Protocol selection logic
-//     private selectProtocol(from: string, to: string, message: any): string {
-//         // Intelligent protocol selection based on:
-//         // - Agent capabilities
-//         // - Message type
-//         // - Performance requirements
-//         // - Current system load
-//
-//         const fromAgent = this.agents.get(from);
-//         const toAgent = this.agents.get(to);
-//
-//         if (fromAgent?.supportsA2A && toAgent?.supportsA2A) {
-//             return 'a2a';
-//         }
-//
-//         if (message.requiresWorkflow) {
-//             return 'langgraph';
-//         }
-//
-//         return 'direct';
-//     }
-// }
+// packages/core/src/TriOrchestrator.ts
+// TODO: Implement orchestration functionality for multi-protocol coordination
+export class TriOrchestrator {
+    private agents: Map<string, any> = new Map();
+    private workflows: Map<string, any> = new Map();
+
+    constructor(config?: any) {
+        // Placeholder constructor
+    }
+
+    // Placeholder methods to be implemented
+    async routeMessage(from: string, to: string, message: any): Promise<any> {
+        throw new Error('TriOrchestrator not yet implemented - Phase 2');
+    }
+
+    async executeWorkflow(workflow: any): Promise<any> {
+        throw new Error('Workflow execution not yet implemented - Phase 2');
+    }
+
+    getStatus(): any {
+        return {
+            agents: this.agents.size,
+            workflows: this.workflows.size,
+            status: 'not_implemented'
+        };
+    }
+}

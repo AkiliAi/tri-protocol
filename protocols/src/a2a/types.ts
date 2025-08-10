@@ -144,13 +144,13 @@ export interface MutualTLSSecurityScheme extends SecuritySchemeBase {
 }
 
 export interface OAuthFlows{
-    authorizationCode?: AutorizationCodeAuthFlow;
+    authorizationCode?: AuthorizationCodeAuthFlow;
     ClientCredentials?: ClientCredentialsAuthFlow;
     implicit?: ImplicitAuthFlow;
     password?: PasswordAuthFlow;
 }
 
-export interface AutorizationCodeAuthFlow {
+export interface AuthorizationCodeAuthFlow {
     authorizationUrl: string;
     tokenUrl: string;
     refreshUrl?: string;
@@ -228,7 +228,7 @@ export interface AgentCard {
     version?: string; // Version of the agent
     documentationUrl?: string; // URL to the agent's documentation
     // capabilities?: AgentCapability; // Capabilities of the agent
-    systemFeatures?: AgentSystemFeatures[]; // System features supported by the agent
+    systemFeatures?: AgentSystemFeatures; // System features supported by the agent
     securitySchemes?: SecurityScheme[]; // Security schemes supported by the agent
     defaultInputMode?: string; // Default input mode for the agent
     defaultOutputMode?: string; // Default output mode for the agent
@@ -243,7 +243,7 @@ export interface AgentProfile {
     agentType: string;
     status: AgentStatus;
     capabilities: AgentCapability[];
-    systemeFeatures: AgentSystemFeatures[];
+    systemFeatures: AgentSystemFeatures;
     metadata: AgentMetadata;
     lastSeen: Date;
     networkAddress?: string;
@@ -313,18 +313,30 @@ export interface TaskStatus{
     timestamp?: string;
 }
 
-export interface TaskState{
-    Submitted: "submitted";
-    InProgress: "in-progress";
-    Working: "working";
-    InputRequired: "input-required";
-    Completed: "completed";
-    Failed: "failed";
-    Cancelled: "cancelled";
-    Rejected: "rejected";
-    AuthRequired: "auth-required";
-    Unknown: "unknown";
-}
+// export interface TaskState{
+//     Submitted: "submitted";
+//     InProgress: "in-progress";
+//     Working: "working";
+//     InputRequired: "input-required";
+//     Completed: "completed";
+//     Failed: "failed";
+//     Cancelled: "cancelled";
+//     Rejected: "rejected";
+//     AuthRequired: "auth-required";
+//     Unknown: "unknown";
+// }
+
+export type TaskState =
+    | "submitted"
+    | "in-progress"
+    | "working"
+    | "input-required"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "rejected"
+    | "auth-required"
+    | "unknown";
 
 export interface TaskStatusUpdateEvent {
     taskId: string;
@@ -386,7 +398,8 @@ export interface Artifact {
 }
 
 export interface TaskQueryParameters extends TaskIdParameters {
-    historyLengts?: number;
+    historyLength?: number;
+
 }
 
 export interface GetTaskPushNotificationConfigParameters  extends TaskIdParameters {
@@ -552,7 +565,7 @@ export interface TextPart extends PartBase {
 }
 export interface FileBase {
     name?: string;
-    mimiType?: string;
+    mimeType?: string;
 }
 
 export interface FileWithBytes extends FileBase {
@@ -641,9 +654,6 @@ export interface SendMessageRequest extends JSONRPCRequest {
     readonly method: "message/send";
     parameters: MessageSendParameters;
 }
-export interface SendMessageSuccessResponse extends JSONRPCSuccessResponse {
-    result: Message | Task;
-}
 
 export interface SendMessageSuccessResponse extends JSONRPCSuccessResponse {
     result: Message | Task;
@@ -673,22 +683,11 @@ export type SendStreamingMessageResponse =
     | JSONRPCErrorResponse;
 
 
-export interface SendStreamingMessageRequest extends JSONRPCRequest {
-    id: number | string;
-    readonly method: "message/stream";
-    parameters: MessageSendParameters;
-}
-
 export interface SendStreamingMessageSuccessResponse
     extends JSONRPCSuccessResponse {
     result: Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
 }
 
-export interface GetTaskRequest extends JSONRPCRequest {
-    id: number | string;
-    readonly method: "tasks/get";
-    parameters: TaskQueryParameters;
-}
 export interface GetTaskRequest extends JSONRPCRequest {
     id: number | string;
     readonly method: "tasks/get";

@@ -9,7 +9,7 @@ import {
     OAuth2SecurityScheme,
     OpenIdConnectSecurityScheme,
     MutualTLSSecurityScheme,
-    AutorizationCodeAuthFlow,
+    AuthorizationCodeAuthFlow,
     ClientCredentialsAuthFlow
 } from './types';
 
@@ -231,7 +231,7 @@ export class SecurityManager {
      * Refresh OAuth2 access token
      */
     private async refreshAccessToken(
-        flow: AutorizationCodeAuthFlow,
+        flow: AuthorizationCodeAuthFlow,
         credentials: { refreshToken: string; clientId: string; clientSecret: string }
     ): Promise<string> {
         if (!flow.refreshUrl) {

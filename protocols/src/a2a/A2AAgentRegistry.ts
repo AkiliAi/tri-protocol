@@ -24,7 +24,7 @@ import {
     A2AMessageType,
     AgentNotFoundError,
     A2AConfig,
-    AgentSystemFeatures
+    AgentSystemFeatures, AgentHealth
 } from './types';
 
 export class A2AAgentRegistry extends EventEmitter {
@@ -35,6 +35,7 @@ export class A2AAgentRegistry extends EventEmitter {
     private lastTopologyUpdate = new Date();
     private cleanupInterval?: NodeJS.Timeout;
     private config: A2AConfig;
+    private agentHealth = new Map<string, AgentHealth>();
 
     constructor(config: A2AConfig) {
         super();
@@ -93,6 +94,17 @@ export class A2AAgentRegistry extends EventEmitter {
     }
 
     /**
+     * Bulk register multiple agents
+     */
+
+    async bulkRegister(agents: AgentProfile[]): Promise<void> {
+        for (const agent of agents) {
+            await this.registerAgent(agent);
+        }
+        this.emit('network:topology:changed', this.getTopology());
+    }
+
+    /**
      * Unregister an agent
      */
     async unregisterAgent(agentId: string): Promise<void> {
@@ -117,6 +129,15 @@ export class A2AAgentRegistry extends EventEmitter {
 
         console.log(`[A2A Registry] Agent unregistered: ${agentId}`);
     }
+
+    async bulkUnregister(agentIds: string[]): Promise<void> {
+        for (const agentId of agentIds) {
+            await this.unregisterAgent(agentId);
+        }
+        this.emit('network:topology:changed', this.getTopology());
+    }
+
+
 
     /**
      * Remove agent from all indices
@@ -290,6 +311,62 @@ export class A2AAgentRegistry extends EventEmitter {
     }
 
     /**
+     * R
+     * Get capability distribution across agents
+     */
+
+    async getCapabilityDistribution(): Promise<Map<string, number>> {
+        const distribution = new Map<string, number>();
+
+        // Count capabilities per category
+        for (const [agentId, agentCaps] of this.capabilities) {
+            for (const cap of agentCaps.values()) {
+                if (!distribution.has(cap.category)) {
+                    distribution.set(cap.category, 0);
+                }
+                distribution.set(cap.category, distribution.get(cap.category)! + 1);
+            }
+        }
+
+        return distribution;
+    }
+
+    /**
+     * Find agents by type
+     */
+    async findByType(agentType: string): Promise<AgentProfile[]> {
+        return this.getAllAgents().filter(agent => agent.agentType === agentType);
+    }
+
+    /**
+     * Find agents by status
+     */
+    async findByStatus(status: AgentStatus): Promise<AgentProfile[]> {
+        return this.getAllAgents().filter(agent => agent.status === status);
+    }
+
+    /**
+     * Find agents by complex query
+     */
+    async findByQuery(query: {
+        capabilities?: string[];
+        status?: AgentStatus;
+        agentType?: string;
+    }): Promise<AgentProfile[]> {
+        return this.getAllAgents().filter(agent => {
+            if (query.status && agent.status !== query.status) return false;
+            if (query.agentType && agent.agentType !== query.agentType) return false;
+            if (query.capabilities) {
+                const agentCaps = agent.capabilities.map(c => c.name);
+                return query.capabilities.every(cap => agentCaps.includes(cap));
+            }
+            return true;
+        });
+    }
+
+
+
+    /**
      * Update agent status
      */
     async updateAgentStatus(agentId: string, status: AgentStatus): Promise<void> {
@@ -303,6 +380,56 @@ export class A2AAgentRegistry extends EventEmitter {
         agent.metadata.uptime = Date.now() - agent.metadata.uptime;
 
         this.emit('agent:status:changed', { agentId, status });
+    }
+
+
+    /**
+     * Update agent capabilities
+     */
+    async updateCapabilities(agentId: string, capabilities: AgentCapability[]): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        // Remove old capability mappings
+        await this.removeAgentFromIndices(agentId);
+
+        // Update capabilities
+        agent.capabilities = capabilities;
+
+        // Re-index with new capabilities
+        const agentCaps = new Map<string, AgentCapability>();
+        capabilities.forEach(cap => {
+            agentCaps.set(cap.name, cap);
+
+            if (!this.capabilityIndex.has(cap.name)) {
+                this.capabilityIndex.set(cap.name, new Set());
+            }
+            this.capabilityIndex.get(cap.name)!.add(agentId);
+
+            const categorySet = this.categoryIndex.get(cap.category);
+            if (categorySet) {
+                categorySet.add(agentId);
+            }
+        });
+
+        this.capabilities.set(agentId, agentCaps);
+        this.updateTopology();
+        this.emit('agent:updated', { agentId, updates: { capabilities } });
+    }
+
+    /**
+     * Update last seen timestamp
+     */
+    async updateLastSeen(agentId: string): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        agent.lastSeen = new Date();
+        this.emit('agent:updated', { agentId, updates: { lastSeen: agent.lastSeen } });
     }
 
     /**
@@ -379,6 +506,197 @@ export class A2AAgentRegistry extends EventEmitter {
             lastTopologyUpdate: this.lastTopologyUpdate
         };
     }
+
+
+
+    private agentMetadata = new Map<string, Record<string, any>>();
+
+    /**
+     * Set custom metadata for an agent
+     */
+    async setMetadata(agentId: string, key: string, value: any): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        if (!this.agentMetadata.has(agentId)) {
+            this.agentMetadata.set(agentId, {});
+        }
+
+        const metadata = this.agentMetadata.get(agentId)!;
+        metadata[key] = value;
+
+        // Also update in agent profile
+        (agent.metadata as any)[key] = value;
+    }
+
+    /**
+     * Get all metadata for an agent
+     */
+    async getMetadata(agentId: string): Promise<Record<string, any> | undefined> {
+        return this.agentMetadata.get(agentId);
+    }
+
+    /**
+     * Merge metadata updates
+     */
+    async mergeMetadata(agentId: string, updates: Record<string, any>): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        Object.assign(agent.metadata, updates);
+
+        if (!this.agentMetadata.has(agentId)) {
+            this.agentMetadata.set(agentId, {});
+        }
+        Object.assign(this.agentMetadata.get(agentId)!, updates);
+    }
+
+    /**
+     * Delete metadata field
+     */
+    async deleteMetadata(agentId: string, key: string): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        delete (agent.metadata as any)[key];
+
+        const metadata = this.agentMetadata.get(agentId);
+        if (metadata) {
+            delete metadata[key];
+        }
+    }
+
+    /**
+     * Update agent health metrics
+     */
+    async updateHealth(agentId: string, health: AgentHealth): Promise<void> {
+        const agent = this.agents.get(agentId);
+        if (!agent) {
+            throw new AgentNotFoundError(agentId);
+        }
+
+        this.agentHealth.set(agentId, health);
+        this.emit('agent:health:updated', { agentId, health });
+    }
+
+    /**
+     * Get agent health
+     */
+    async getHealth(agentId: string): Promise<AgentHealth | undefined> {
+        return this.agentHealth.get(agentId);
+    }
+
+    /**
+     * Get unhealthy agents
+     */
+    async getUnhealthyAgents(thresholds: {
+        maxCpu?: number;
+        maxMemory?: number;
+        maxResponseTime?: number;
+        maxErrorRate?: number;
+    }): Promise<AgentProfile[]> {
+        const unhealthy: AgentProfile[] = [];
+
+        for (const [agentId, health] of this.agentHealth) {
+            const agent = this.agents.get(agentId);
+            if (!agent) continue;
+
+            const isUnhealthy =
+                (thresholds.maxCpu && health.cpu > thresholds.maxCpu) ||
+                (thresholds.maxMemory && health.memory > thresholds.maxMemory) ||
+                (thresholds.maxResponseTime && health.responseTime > thresholds.maxResponseTime) ||
+                (thresholds.maxErrorRate && health.errorRate > thresholds.maxErrorRate);
+
+            if (isUnhealthy) {
+                unhealthy.push(agent);
+            }
+        }
+
+        return unhealthy;
+    }
+
+    /**
+     * Check health and update status
+     */
+    async checkHealthAndUpdateStatus(agentId: string): Promise<void> {
+        const health = this.agentHealth.get(agentId);
+        if (!health) return;
+
+        // Define thresholds for degraded status
+        const isDegraded =
+            health.cpu > 90 ||
+            health.memory > 90 ||
+            health.responseTime > 5000 ||
+            health.errorRate > 0.2;
+
+        if (isDegraded) {
+            await this.updateAgentStatus(agentId, AgentStatus.DEGRADED);
+        }
+    }
+
+    /**
+     * Get inactive agents
+     */
+    async getInactiveAgents(thresholdMs: number): Promise<AgentProfile[]> {
+        const now = Date.now();
+        return this.getAllAgents().filter(agent => {
+            const inactiveTime = now - agent.lastSeen.getTime();
+            return inactiveTime > thresholdMs;
+        });
+    }
+
+    /**
+     * Cleanup inactive agents
+     */
+    async cleanupInactive(thresholdMs: number): Promise<string[]> {
+        const inactive = await this.getInactiveAgents(thresholdMs);
+        const removed: string[] = [];
+
+        for (const agent of inactive) {
+            await this.unregisterAgent(agent.agentId);
+            removed.push(agent.agentId);
+        }
+
+        this.emit('agents:cleanup', { removed, timestamp: Date.now() });
+        return removed;
+    }
+
+    /**
+     * Get detailed statistics
+     */
+    async getStatistics(): Promise<{
+        totalAgents: number;
+        onlineAgents: number;
+        busyAgents: number;
+        offlineAgents: number;
+        degradedAgents?: number;
+    }> {
+        const agents = this.getAllAgents();
+
+        return {
+            totalAgents: agents.length,
+            onlineAgents: agents.filter(a => a.status === AgentStatus.ONLINE).length,
+            busyAgents: agents.filter(a => a.status === AgentStatus.BUSY).length,
+            offlineAgents: agents.filter(a => a.status === AgentStatus.OFFLINE).length,
+            degradedAgents: agents.filter(a => a.status === AgentStatus.DEGRADED).length
+        };
+    }
+
+
+
+
+
+
+
+
+
+
 
     /**
      * Setup periodic cleanup of offline agents

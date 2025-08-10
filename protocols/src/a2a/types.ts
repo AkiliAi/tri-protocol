@@ -257,7 +257,8 @@ export enum AgentStatus {
     OFFLINE = 'offline',
     BUSY = 'busy',
     MAINTENANCE = 'maintenance',
-    ERROR = 'error'
+    ERROR = 'error',
+    DEGRADED = 'degraded',
 }
 
 export interface AgentMetadata {
@@ -271,6 +272,22 @@ export interface AgentMetadata {
         success_rate: number;
         total_requests: number;
     };
+    registeredAt: Date; // When the agent was registered
+    lastUpdated: Date; // When the agent was last updated
+}
+
+
+
+export interface AgentHealth {
+    cpu: number; // CPU usage percentage
+    memory: number; // Memory usage percentage
+    responseTime: number; // Average response time in ms$
+    errorRate: number; // Error rate percentage
+
+}
+
+export interface ExtendedAgentMetadata extends AgentMetadata {
+    [key: string]: any;
 }
 
 // ================================

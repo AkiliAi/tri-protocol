@@ -69,7 +69,7 @@ export interface A2AProtocolConfig {
         discoveryInterval?: number;
     };
 }
-export class A2AProtocolAdapter extends EventEmitter {
+export class A2AProtocol extends EventEmitter {
     private router: MessageRouter;
 
 
@@ -343,7 +343,7 @@ export class A2AProtocolAdapter extends EventEmitter {
             method: 'tasks/get',
             parameters: {
                 id: taskId,
-                historyLengts: historyLength // Note: typo in original spec
+                historyLength: historyLength
             }
         };
 

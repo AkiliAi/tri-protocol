@@ -214,7 +214,7 @@ export class A2AAgentServer extends EventEmitter {
      * Setup WebSocket for streaming
      */
     private setupWebSocket(): void {
-        if (!this.agentCard.systemFeatures?.streaming) {
+        if (!this.agentCard.systemFeatures || !this.agentCard.systemFeatures.streaming) {
             return;
         }
 
@@ -528,7 +528,7 @@ export class A2AAgentServer extends EventEmitter {
      * Handle get task request
      */
     private async handleGetTask(request: GetTaskRequest): Promise<JSONRPCResponse> {
-        const { id, historyLengts } = request.parameters;
+        const { id, historyLength } = request.parameters;
 
         const task = this.tasks.get(id);
         if (!task) {
@@ -544,8 +544,8 @@ export class A2AAgentServer extends EventEmitter {
 
         // Limit history if requested
         let result = { ...task };
-        if (historyLengts !== undefined && task.history) {
-            result.history = task.history.slice(-historyLengts);
+        if (historyLength !== undefined && task.history) {
+            result.history = task.history.slice(-historyLength);
         }
 
         return {
@@ -765,7 +765,7 @@ export class A2AAgentServer extends EventEmitter {
                 console.log(`[A2A Server] Agent: ${this.agentCard.name}`);
                 console.log(`[A2A Server] Transport: ${this.agentCard.preferredTransport}`);
                 // console.log(`[A2A Server] Streaming: ${this.agentCard.systemFeatures?.includes('streaming') ? 'Enabled' : 'Disabled'}`);
-                console.log(`[A2A Server] Streaming: ${this.agentCard.systemFeatures?.streaming ? 'Enabled' : 'Disabled'}`);
+                console.log(`[A2A Server] Streaming: ${this.agentCard.systemFeatures && this.agentCard.systemFeatures.streaming ? 'Enabled' : 'Disabled'}`);
                 this.emit('server:started', { host, port: this.config.port });
                 resolve();
             });

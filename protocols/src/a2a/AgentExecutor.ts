@@ -15,7 +15,8 @@ import {
     TaskArtifactUpdateEvent,
     Artifact,
     Part,
-    AgentCapability
+    AgentCapability,
+    CapabilityCategory
 } from "./types";
 
 /**
@@ -114,7 +115,7 @@ export abstract class AgentExecutor implements IAgentExecutor {
         // Default: create task if capability suggests long-running operation
         if (context.capability) {
             return context.capability.cost > 50 ||
-                context.capability.category === 'ACTION' ||
+                context.capability.category === CapabilityCategory.ACTION ||
                 context.metadata?.streaming === true;
         }
         return false;

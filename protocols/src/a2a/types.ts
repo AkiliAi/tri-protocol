@@ -199,10 +199,12 @@ export enum TransportProtocol {
     GRPC = "GRPC",
     HTTP_JSON = "HTTP+JSON",
 }
+type CustomTransport = 'custom-ws' | 'custom-grpc'
+
 
 export interface AgentInterface {
     url: string;
-    transport: TransportProtocol | string; // Allow custom protocols
+    transport: TransportProtocol | CustomTransport; // Allow custom protocols
 }
 
 

@@ -86,6 +86,35 @@ export interface SecuritySchemeBase {
     //operation description for the security scheme
     description?: string;
 }
+export interface SecurityCredentials{
+    // Credentials for API Key authentication
+    apiKey?: string;
+
+    // Credentials for HTTP authentication
+    token?: string;
+    username?: string;
+    password?: string;
+
+    // Credentials for OAuth2
+    accessToken?: string;
+    refreshToken?: string;
+    clientId?: string;
+    clientSecret?: string;
+
+    // Credentials for OpenID Connect
+    idToken?: string;
+
+    // Credentials for Mutual TLS
+    clientCertificate?: string;
+    clientKey?: string;
+
+    // General fields
+    expiresAt?: Date;
+    scope?: string[];
+    metadata?: { [key: string]: any };
+
+}
+
 
 export interface APIKeySecurityScheme extends SecuritySchemeBase {
     readonly  type: 'apiKey';
@@ -115,13 +144,13 @@ export interface MutualTLSSecurityScheme extends SecuritySchemeBase {
 }
 
 export interface OAuthFlows{
-    authorizationCode?: AutorizationCodeAuthFlow;
+    authorizationCode?: AuthorizationCodeAuthFlow;
     ClientCredentials?: ClientCredentialsAuthFlow;
     implicit?: ImplicitAuthFlow;
     password?: PasswordAuthFlow;
 }
 
-export interface AutorizationCodeAuthFlow {
+export interface AuthorizationCodeAuthFlow {
     authorizationUrl: string;
     tokenUrl: string;
     refreshUrl?: string;
@@ -170,10 +199,12 @@ export enum TransportProtocol {
     GRPC = "GRPC",
     HTTP_JSON = "HTTP+JSON",
 }
+type CustomTransport = 'custom-ws' | 'custom-grpc'
+
 
 export interface AgentInterface {
     url: string;
-    transport: TransportProtocol | string; // Allow custom protocols
+    transport: TransportProtocol | CustomTransport; // Allow custom protocols
 }
 
 
@@ -199,7 +230,7 @@ export interface AgentCard {
     version?: string; // Version of the agent
     documentationUrl?: string; // URL to the agent's documentation
     // capabilities?: AgentCapability; // Capabilities of the agent
-    systemFeatures?: AgentSystemFeatures[]; // System features supported by the agent
+    systemFeatures?: AgentSystemFeatures; // System features supported by the agent
     securitySchemes?: SecurityScheme[]; // Security schemes supported by the agent
     defaultInputMode?: string; // Default input mode for the agent
     defaultOutputMode?: string; // Default output mode for the agent
@@ -214,7 +245,7 @@ export interface AgentProfile {
     agentType: string;
     status: AgentStatus;
     capabilities: AgentCapability[];
-    systemeFeatures: AgentSystemFeatures[];
+    systemFeatures: AgentSystemFeatures;
     metadata: AgentMetadata;
     lastSeen: Date;
     networkAddress?: string;
@@ -284,18 +315,30 @@ export interface TaskStatus{
     timestamp?: string;
 }
 
-export interface TaskState{
-    Submitted: "submitted";
-    InProgress: "in-progress";
-    Working: "working";
-    InputRequired: "input-required";
-    Completed: "completed";
-    Failed: "failed";
-    Cancelled: "cancelled";
-    Rejected: "rejected";
-    AuthRequired: "auth-required";
-    Unknown: "unknown";
-}
+// export interface TaskState{
+//     Submitted: "submitted";
+//     InProgress: "in-progress";
+//     Working: "working";
+//     InputRequired: "input-required";
+//     Completed: "completed";
+//     Failed: "failed";
+//     Cancelled: "cancelled";
+//     Rejected: "rejected";
+//     AuthRequired: "auth-required";
+//     Unknown: "unknown";
+// }
+
+export type TaskState =
+    | "submitted"
+    | "in-progress"
+    | "working"
+    | "input-required"
+    | "completed"
+    | "failed"
+    | "cancelled"
+    | "rejected"
+    | "auth-required"
+    | "unknown";
 
 export interface TaskStatusUpdateEvent {
     taskId: string;
@@ -321,6 +364,30 @@ export interface TaskIdParameters {
     metadata?: { [key: string]: any };
 }
 
+export interface InMemoryTaskStore {
+    tasks: Map<string, Task>;
+    TasksByContextId: Map<string, Task[]>;
+    artifacts: Map<string, Artifact[]>;
+    pushConfigs: Map<string, TaskPushNotificationConfig>;
+    metrics: Map<string, {
+        createdAt: Date;
+        lastUpdated: Date;
+        executionTime?: number;
+        attempts: number;
+    }>
+    // Méthodes de gestion
+    addTask(task: Task): void;
+    getTask(taskId: string): Task | undefined;
+    updateTaskStatus(taskId: string, status: TaskStatus): boolean;
+    removeTask(taskId: string): boolean;
+    getTasksByContext(contextId: string): Task[];
+    getTasksByStatus(status: TaskState): Task[];
+    addArtifact(taskId: string, artifact: Artifact): boolean;
+    getArtifacts(taskId: string): Artifact[];
+    cleanup(olderThan: Date): number; // Retourne le nombre de tâches supprimées
+
+
+}
 export interface Artifact {
     artifactId: string;
     name?: string;
@@ -333,7 +400,8 @@ export interface Artifact {
 }
 
 export interface TaskQueryParameters extends TaskIdParameters {
-    historyLengts?: number;
+    historyLength?: number;
+
 }
 
 export interface GetTaskPushNotificationConfigParameters  extends TaskIdParameters {
@@ -499,7 +567,7 @@ export interface TextPart extends PartBase {
 }
 export interface FileBase {
     name?: string;
-    mimiType?: string;
+    mimeType?: string;
 }
 
 export interface FileWithBytes extends FileBase {
@@ -588,9 +656,6 @@ export interface SendMessageRequest extends JSONRPCRequest {
     readonly method: "message/send";
     parameters: MessageSendParameters;
 }
-export interface SendMessageSuccessResponse extends JSONRPCSuccessResponse {
-    result: Message | Task;
-}
 
 export interface SendMessageSuccessResponse extends JSONRPCSuccessResponse {
     result: Message | Task;
@@ -620,22 +685,11 @@ export type SendStreamingMessageResponse =
     | JSONRPCErrorResponse;
 
 
-export interface SendStreamingMessageRequest extends JSONRPCRequest {
-    id: number | string;
-    readonly method: "message/stream";
-    parameters: MessageSendParameters;
-}
-
 export interface SendStreamingMessageSuccessResponse
     extends JSONRPCSuccessResponse {
     result: Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
 }
 
-export interface GetTaskRequest extends JSONRPCRequest {
-    id: number | string;
-    readonly method: "tasks/get";
-    parameters: TaskQueryParameters;
-}
 export interface GetTaskRequest extends JSONRPCRequest {
     id: number | string;
     readonly method: "tasks/get";

@@ -18,5 +18,5 @@
       "createRelease": "github"
     }
   },
-  "packages": ["packages/*"]
+  "packages": ["core", "protocols", "runtime", "sdk", "cli"]
 }

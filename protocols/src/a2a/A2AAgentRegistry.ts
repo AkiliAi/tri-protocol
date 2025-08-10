@@ -1,3 +1,13 @@
+/**
+ * Agent Registry - A2A Protocol Discovery System
+ * Manages agent registration, discovery, and capability matching
+ * Fist Core (Alpha) Protocol of the Tri Protocol
+ */
+
+
+
+
+
 // packages/protocols/src/a2a/A2AAgentRegistry.ts
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';

@@ -1,15 +1,13 @@
 /*
-    Index file for the core module of the the Tri Protocol.
+    Index file for the core module of the Tri Protocol.
  */
 
-// packages/core/src/index.ts
-export { TriProtocol } from './TriProtocol';
-// @ts-ignore
-export { TriAgent } from './TriAgent';
-// @ts-ignore
-export { TriWorkflow } from './TriWorkflow';
-// @ts-ignore
+// core/src/index.ts
+export { TriProtocol, TriProtocolConfig } from './TriProtocol';
+export { TriAgent, TriAgentConfig } from './TriAgent';
+export { TriRegistry, RegistryEntry } from './TriRegistry';
 export { TriOrchestrator } from './TriOrchestrator';
-// @ts-ignore
-export { TriRegistry } from './TriRegistry';
-export * from './types';
+export { TriWorkflow } from './TriWorkflow';
+
+// Re-export A2A types for convenience
+export * from '../../protocols/src/a2a/types';

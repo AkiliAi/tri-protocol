@@ -1,16 +1,16 @@
-//protocols/src/a2a/A2AProtocolAdapter.ts
+//protocols/src/a2a/A2AProtocol.ts
 /**
- * A2A Protocol Adapter -
+ * A2A Protocol
  * Agent-to-Agent communication protocol adapter for the Tri Protocol.
- * This adapter allows agents to communicate with each other using the Tri Protocol.
+ * This allows agents to communicate with each other using the Tri Protocol.
  * Fist Core (Alpha) Protocol of the Tri Protocol
  */
-// packages/protocols/src/a2a/A2AProtocolAdapter.ts
+// packages/protocols/src/a2a/A2AProtocol.ts
 import { EventEmitter } from 'eventemitter3';
 import axios ,{AxiosInstance} from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
-import jwt from 'jsonwebtoken';
+
 
 import {
     AgentCard,
@@ -69,7 +69,7 @@ export interface A2AProtocolConfig {
         discoveryInterval?: number;
     };
 }
-export class A2AProtocolAdapter extends EventEmitter {
+export class A2AProtocol extends EventEmitter {
     private router: MessageRouter;
 
 
@@ -343,7 +343,7 @@ export class A2AProtocolAdapter extends EventEmitter {
             method: 'tasks/get',
             parameters: {
                 id: taskId,
-                historyLengts: historyLength // Note: typo in original spec
+                historyLength: historyLength
             }
         };
 

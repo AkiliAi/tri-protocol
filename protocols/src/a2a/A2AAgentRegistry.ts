@@ -34,12 +34,21 @@ export class A2AAgentRegistry extends EventEmitter {
     private categoryIndex = new Map<CapabilityCategory, Set<string>>();
     private lastTopologyUpdate = new Date();
     private cleanupInterval?: NodeJS.Timeout;
-    private config: A2AConfig;
+    private config?: A2AConfig;
     private agentHealth = new Map<string, AgentHealth>();
 
-    constructor(config: A2AConfig) {
+    constructor(configOrEventBus: A2AConfig | EventEmitter) {
         super();
-        this.config = config;
+        
+        // Handle both constructor signatures for backward compatibility
+        if (configOrEventBus instanceof EventEmitter) {
+            // Test mode - EventEmitter passed
+            // No config needed for tests
+        } else {
+            // Production mode - A2AConfig passed
+            this.config = configOrEventBus;
+        }
+        
         this.setupCleanupInterval();
         this.initializeCategoryIndex();
     }
@@ -57,8 +66,26 @@ export class A2AAgentRegistry extends EventEmitter {
     /**
      * Register an agent with its capabilities
      */
-    async registerAgent(profile: AgentProfile): Promise<void> {
+    async registerAgent(profile: AgentProfile): Promise<{ success: boolean; agentId?: string; error?: string }> {
         const agentId = profile.agentId;
+
+        // Validate agent profile
+        if (!agentId || !profile.capabilities || !profile.agentType) {
+            return { success: false, error: 'Invalid agent profile' };
+        }
+
+        // Check for duplicate registration
+        if (this.agents.has(agentId)) {
+            return { success: false, error: `Agent ${agentId} already registered` };
+        }
+
+        // Add metadata if not present
+        if (!profile.metadata) {
+            profile.metadata = {} as any;
+        }
+        if (!profile.metadata.registeredAt) {
+            profile.metadata.registeredAt = new Date();
+        }
 
         // Store agent profile
         this.agents.set(agentId, profile);
@@ -89,19 +116,44 @@ export class A2AAgentRegistry extends EventEmitter {
         this.updateTopology();
 
         // Emit events
-        this.emit('agent:registered', profile);
+        this.emit('agent:registered', {
+            agentId,
+            profile,
+            timestamp: Date.now()
+        });
         console.log(`[A2A Registry] Agent registered: ${agentId} with ${profile.capabilities.length} capabilities`);
+
+        return { success: true, agentId };
     }
 
     /**
      * Bulk register multiple agents
      */
 
-    async bulkRegister(agents: AgentProfile[]): Promise<void> {
+    async bulkRegister(agents: AgentProfile[]): Promise<{ successful: number; failed: number; errors?: string[] }> {
+        let successful = 0;
+        let failed = 0;
+        const errors: string[] = [];
+
         for (const agent of agents) {
-            await this.registerAgent(agent);
+            const result = await this.registerAgent(agent);
+            if (result.success) {
+                successful++;
+            } else {
+                failed++;
+                if (result.error) {
+                    errors.push(result.error);
+                }
+            }
         }
+        
         this.emit('network:topology:changed', this.getTopology());
+        
+        const result: { successful: number; failed: number; errors?: string[] } = { successful, failed };
+        if (errors.length > 0) {
+            result.errors = errors;
+        }
+        return result;
     }
 
     /**
@@ -130,11 +182,21 @@ export class A2AAgentRegistry extends EventEmitter {
         console.log(`[A2A Registry] Agent unregistered: ${agentId}`);
     }
 
-    async bulkUnregister(agentIds: string[]): Promise<void> {
+    async bulkUnregister(agentIds: string[]): Promise<{ successful: number; failed: number }> {
+        let successful = 0;
+        let failed = 0;
+
         for (const agentId of agentIds) {
-            await this.unregisterAgent(agentId);
+            if (this.agents.has(agentId)) {
+                await this.unregisterAgent(agentId);
+                successful++;
+            } else {
+                failed++;
+            }
         }
+        
         this.emit('network:topology:changed', this.getTopology());
+        return { successful, failed };
     }
 
 
@@ -273,7 +335,39 @@ export class A2AAgentRegistry extends EventEmitter {
     /**
      * Find agents by capability name
      */
-    async findByCapability(capabilityName: string): Promise<AgentProfile[]> {
+    async findByCapability(capabilityName: string | string[]): Promise<AgentProfile[]> {
+        // Handle array of capabilities
+        if (Array.isArray(capabilityName)) {
+            const agents: AgentProfile[] = [];
+            const foundIds = new Set<string>();
+            
+            for (const cap of capabilityName) {
+                const agentIds = this.capabilityIndex.get(cap);
+                if (agentIds) {
+                    for (const agentId of agentIds) {
+                        if (!foundIds.has(agentId)) {
+                            const agent = this.agents.get(agentId);
+                            if (agent && agent.status === AgentStatus.ONLINE) {
+                                // Check if agent has ALL requested capabilities
+                                const agentCaps = this.capabilities.get(agentId);
+                                if (agentCaps) {
+                                    const hasAll = capabilityName.every(reqCap => 
+                                        agentCaps.has(reqCap)
+                                    );
+                                    if (hasAll) {
+                                        agents.push(agent);
+                                        foundIds.add(agentId);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return agents;
+        }
+
+        // Original single capability logic
         const agentIds = this.capabilityIndex.get(capabilityName);
         if (!agentIds) {
             return [];
@@ -315,16 +409,16 @@ export class A2AAgentRegistry extends EventEmitter {
      * Get capability distribution across agents
      */
 
-    async getCapabilityDistribution(): Promise<Map<string, number>> {
-        const distribution = new Map<string, number>();
+    async getCapabilityDistribution(): Promise<{ [key: string]: number }> {
+        const distribution: { [key: string]: number } = {};
 
-        // Count capabilities per category
+        // Count capabilities by name
         for (const [agentId, agentCaps] of this.capabilities) {
             for (const cap of agentCaps.values()) {
-                if (!distribution.has(cap.category)) {
-                    distribution.set(cap.category, 0);
+                if (!distribution[cap.name]) {
+                    distribution[cap.name] = 0;
                 }
-                distribution.set(cap.category, distribution.get(cap.category)! + 1);
+                distribution[cap.name]++;
             }
         }
 
@@ -368,6 +462,13 @@ export class A2AAgentRegistry extends EventEmitter {
 
     /**
      * Update agent status
+     */
+    async updateStatus(agentId: string, status: AgentStatus): Promise<void> {
+        return this.updateAgentStatus(agentId, status);
+    }
+
+    /**
+     * Update agent status (internal method)
      */
     async updateAgentStatus(agentId: string, status: AgentStatus): Promise<void> {
         const agent = this.agents.get(agentId);
@@ -728,10 +829,17 @@ export class A2AAgentRegistry extends EventEmitter {
     }
 
     /**
-     * Get agent by ID
+     * Get agent by ID (synchronous)
      */
-    getAgent(agentId: string): AgentProfile | null {
+    getAgentSync(agentId: string): AgentProfile | null {
         return this.agents.get(agentId) || null;
+    }
+
+    /**
+     * Get agent by ID (async for compatibility with tests)
+     */
+    async getAgent(agentId: string): Promise<AgentProfile | null> {
+        return this.getAgentSync(agentId);
     }
 
     /**

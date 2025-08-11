@@ -150,7 +150,7 @@ export class MessageRouter extends EventEmitter {
     //     }
     //
     //     let availableRoutes = routes.filter(route => {
-    //         const agent = this.registry.getAgent(route.agentId);
+    //         const agent = this.registry.getAgentSync(route.agentId);
     //         return agent &&
     //             agent.status === AgentStatus.ONLINE &&
     //             (!criteria?.excludeAgents || !criteria.excludeAgents.includes(route.agentId));
@@ -162,7 +162,7 @@ export class MessageRouter extends EventEmitter {
     //
     //     // Apply routing algorithm
     //     const bestRoute = this.selectBestRoute(availableRoutes, criteria);
-    //     return this.registry.getAgent(bestRoute.agentId) || null;
+    //     return this.registry.getAgentSync(bestRoute.agentId) || null;
     // }
 
     async findBestAgent(capability: string, criteria?: {
@@ -204,7 +204,7 @@ export class MessageRouter extends EventEmitter {
      */
     private selectBestAgentFromRoutes(routes: Route[], criteria?: any): AgentProfile | null {
         const bestRoute = this.selectBestRoute(routes, criteria);
-        return this.registry.getAgent(bestRoute.agentId);
+        return this.registry.getAgentSync(bestRoute.agentId);
     }
 
 
@@ -323,7 +323,7 @@ export class MessageRouter extends EventEmitter {
     }
 
     private async routeToSpecificAgent(message: A2AMessage): Promise<A2AResponse> {
-        const targetAgent = this.registry.getAgent(message.to);
+        const targetAgent = this.registry.getAgentSync(message.to);
         if (!targetAgent) {
             throw new AgentNotFoundError(message.to);
         }
@@ -401,7 +401,7 @@ export class MessageRouter extends EventEmitter {
     }
 
     private getAgentCapabilities(agentId: string): AgentCapability[] {
-        const agent = this.registry.getAgent(agentId);
+        const agent = this.registry.getAgentSync(agentId);
         return agent ? agent.capabilities : [];
     }
 

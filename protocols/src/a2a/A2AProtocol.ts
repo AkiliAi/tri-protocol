@@ -807,7 +807,7 @@ export class A2AProtocol extends EventEmitter {
      * Get agent by ID
      */
     private async getAgent(agentId: string): Promise<AgentProfile> {
-        const agent = this.registry.getAgent(agentId);
+        const agent = this.registry.getAgentSync(agentId);
         if (!agent) {
             throw new AgentNotFoundError(agentId);
         }

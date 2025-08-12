@@ -471,6 +471,7 @@ export class A2AAgentServer extends EventEmitter {
                 },
                 kind: 'task',
                 createdAt: new Date(),
+                updatedAt: new Date(),
                 metadata: {
                     streaming: true,
                     socketId: socket.id
@@ -703,7 +704,8 @@ export class A2AAgentServer extends EventEmitter {
                     timestamp: new Date().toISOString()
                 },
                 kind: 'task',
-                createdAt: new Date()
+                createdAt: new Date(),
+                updatedAt: new Date()
             };
 
             // Simulate processing with updates

@@ -214,6 +214,7 @@ export abstract class AgentExecutor implements IAgentExecutor {
             },
             kind: 'task',
             createdAt: new Date(),
+            updatedAt: new Date(),
             metadata: context.metadata
         };
     }

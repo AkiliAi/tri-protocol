@@ -49,7 +49,7 @@ import {
     AgentCapability,
     AgentStatus,
     CapabilityQuery,
-    CapabilityMatch, A2AResponse
+    CapabilityMatch, A2AResponse, TaskState, TaskDefinition
 } from './types';
 import {SecurityManager}  from "./SecurityManager";
 import {A2AAgentRegistry} from "./A2AAgentRegistry";
@@ -69,6 +69,18 @@ export interface A2AProtocolConfig {
         discoveryInterval?: number;
     };
 }
+
+interface SimpleTaskStatus {
+    id: string;
+    state: TaskState;
+    progress: number;
+    targetAgent: string;
+    capability: string;
+    parameters: Record<string, any>;
+    priority: number;
+    createdAt: Date;
+    message?: string;
+}
 export class A2AProtocol extends EventEmitter {
     private router: MessageRouter;
 
@@ -83,6 +95,7 @@ export class A2AProtocol extends EventEmitter {
     private registeredAgents: Map<string, AgentProfile> = new Map();
     private tasks: Map<string, Task> = new Map();
     private pushNotificationConfigs: Map<string, TaskPushNotificationConfig> = new Map();
+    // private taskStore = new Map<string, SimpleTaskStatus>();
 
     constructor(config: A2AProtocolConfig) {
         super();
@@ -140,6 +153,7 @@ export class A2AProtocol extends EventEmitter {
             this.emit('message:failed', { message, error });
         });
     }
+
 
     /**
      * Route message through router
@@ -325,42 +339,80 @@ export class A2AProtocol extends EventEmitter {
     }
 
     /**
-     * Get task details
+     * Create a new task
+     *
      */
-    async getTask(taskId: string, historyLength?: number): Promise<Task> {
-        const task = this.tasks.get(taskId);
-        const agentId = task ? await this.findAgentForTask(taskId) : null;
+    async createTask(taskDef: TaskDefinition): Promise<string> {
+        const taskId = uuidv4();
 
-        if (!agentId) {
-            throw new A2AError('Task not found', 'TASK_NOT_FOUND');
-        }
-
-        const targetAgent = await this.getAgent(agentId);
-
-        const request: GetTaskRequest = {
-            jsonrpc: '2.0',
-            id: uuidv4(),
-            method: 'tasks/get',
-            parameters: {
-                id: taskId,
-                historyLength: historyLength
-            }
+        // Créer une vraie Task avec TaskStatus
+        const task: Task = {
+            id: taskId,
+            contextId: uuidv4(), // ou taskDef.contextId si disponible
+            status: {
+                state: 'submitted',
+                timestamp: new Date().toISOString()
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            executedBy: taskDef.targetAgent,
+            metadata: {
+                definition: taskDef,
+                priority: taskDef.priority,
+                capability: taskDef.requiredCapability
+            },
+            kind: 'task'
         };
 
-        const response = await this.sendSecureJSONRPC(
-            targetAgent.metadata.location,
-            request
-        );
-
-        if ('error' in response && response.error) {
-            throw this.handleJSONRPCError(response.error);
-        }
-
-        const updatedTask = (response as GetTaskSuccessResponse).result;
-        this.tasks.set(taskId, updatedTask);
-
-        return updatedTask;
+        this.tasks.set(taskId, task);
+        this.emit('task:created', taskId);
+        return taskId;
     }
+
+
+
+    /**
+     * Get task details
+     */
+    async getTask(taskId: string): Promise<Task> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+        return task;
+    }
+    // async getTask(taskId: string, historyLength?: number): Promise<Task> {
+    //     const task = this.tasks.get(taskId);
+    //     const agentId = task ? await this.findAgentForTask(taskId) : null;
+    //
+    //     if (!agentId) {
+    //         throw new A2AError('Task not found', 'TASK_NOT_FOUND');
+    //     }
+    //
+    //     const targetAgent = await this.getAgent(agentId);
+    //
+    //     const request: GetTaskRequest = {
+    //         jsonrpc: '2.0',
+    //         id: uuidv4(),
+    //         method: 'tasks/get',
+    //         parameters: {
+    //             id: taskId,
+    //             historyLength: historyLength
+    //         }
+    //     };
+    //
+    //     const response = await this.sendSecureJSONRPC(
+    //         targetAgent.metadata.location,
+    //         request
+    //     );
+    //
+    //     if ('error' in response && response.error) {
+    //         throw this.handleJSONRPCError(response.error);
+    //     }
+    //
+    //     const updatedTask = (response as GetTaskSuccessResponse).result;
+    //     this.tasks.set(taskId, updatedTask);
+    //
+    //     return updatedTask;
+    // }
 
     /**
      * Cancel a task
@@ -888,7 +940,18 @@ export class A2AProtocol extends EventEmitter {
      * Get registered agents
      */
     getRegisteredAgents(): AgentProfile[] {
-        return Array.from(this.registeredAgents.values());
+        return this.registry.getAllAgents();
+    }
+
+    /**
+     * Cleanup inactive agents
+     */
+
+    async cleanupInactiveAgents(thresholdMs: number): Promise<void> {
+        const removed = await this.registry.cleanupInactive(thresholdMs);
+        removed.forEach(agentId => {
+            this.emit('agent:cleaned', agentId);
+        });
     }
 
     /**
@@ -897,6 +960,53 @@ export class A2AProtocol extends EventEmitter {
     getActiveTasks(): Task[] {
         return Array.from(this.tasks.values());
     }
+
+    /**
+     * Update task progress
+     */
+
+    async updateTaskProgress(taskId: string, progress: number, message?: string): Promise<void> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+
+        // Mettre à jour le vrai TaskStatus
+        task.status = {
+            state: progress === 100 ? 'completed' :
+                progress > 0 ? 'in-progress' : 'submitted',
+            timestamp: new Date().toISOString()
+        };
+
+        // Si un message est fourni, créer un vrai Message
+        if (message) {
+            task.status.message = {
+                role: 'agent',
+                parts: [{ kind: 'text', text: message }],
+                messageId: uuidv4(),
+                kind: 'message'
+            };
+        }
+
+        // Mettre à jour les métadonnées
+        if (!task.metadata) task.metadata = {};
+        task.metadata.progress = progress;
+        task.updatedAt = new Date();
+
+        this.emit('task:progress', { taskId, progress, message });
+    }
+
+    /**
+     * Get task status
+     */
+    async getTaskStatus(taskId: string): Promise<TaskStatus> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+
+        // Retourner le vrai TaskStatus
+        return task.status;
+    }
+
+
+
 
     /**
      * Close all connections
@@ -913,6 +1023,12 @@ export class A2AProtocol extends EventEmitter {
         this.tasks.clear();
         this.pushNotificationConfigs.clear();
 
+        // Shutdown the registry
+        this.registry.shutdown();
+
         this.emit('shutdown');
+        
+        // Remove all listeners
+        this.removeAllListeners();
     }
 }

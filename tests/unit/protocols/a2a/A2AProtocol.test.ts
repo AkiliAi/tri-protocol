@@ -1,3 +1,9 @@
+/**
+ * Test suite for A2AProtocol
+ *
+ */
+
+
 // tests/unit/protocols/a2a/A2AProtocol.test.ts
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { A2AProtocol } from '../../../../protocols/src/a2a/A2AProtocol';

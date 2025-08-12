@@ -299,20 +299,23 @@ export interface Task {
     status: TaskStatus;
     history?: Message[];
     artifacts?: Artifact[];
-    metadata?: { [key: string]: any };
-    readonly kind: "task";
+    results?: TaskResult;
     createdAt: Date;
+    updatedAt: Date;
+    executedBy?: string; // Agent ID that executed the task
+    metadata?: Record<string, any>;
+    readonly kind: "task";
 }
 export interface TaskDefinition {
-    id: string;
     name: string;
     description: string;
+    targetAgent?: string; // Agent ID or 'broadcast' for all agents
     requiredCapability: string;
     parameters: Record<string, any>;
     priority: A2APriority;
     timeout?: number;
     retries?: number;
-    dependencies?: string[]; // Other task IDs
+    dependencies?: string[];
 }
 
 export interface TaskResult {
@@ -323,6 +326,7 @@ export interface TaskResult {
     executedBy: string;
     executionTime: number;
     timestamp: Date;
+    artifacts?: Artifact[]; // Artifacts produced by the task
 }
 
 
@@ -332,18 +336,6 @@ export interface TaskStatus{
     timestamp?: string;
 }
 
-// export interface TaskState{
-//     Submitted: "submitted";
-//     InProgress: "in-progress";
-//     Working: "working";
-//     InputRequired: "input-required";
-//     Completed: "completed";
-//     Failed: "failed";
-//     Cancelled: "cancelled";
-//     Rejected: "rejected";
-//     AuthRequired: "auth-required";
-//     Unknown: "unknown";
-// }
 
 export type TaskState =
     | "submitted"
@@ -403,8 +395,8 @@ export interface InMemoryTaskStore {
     getArtifacts(taskId: string): Artifact[];
     cleanup(olderThan: Date): number; // Retourne le nombre de tâches supprimées
 
-
 }
+
 export interface Artifact {
     artifactId: string;
     name?: string;

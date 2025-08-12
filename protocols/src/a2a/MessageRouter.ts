@@ -204,7 +204,7 @@ export class MessageRouter extends EventEmitter {
      */
     private selectBestAgentFromRoutes(routes: Route[], criteria?: any): AgentProfile | null {
         const bestRoute = this.selectBestRoute(routes, criteria);
-        return this.registry.getAgentSync(bestRoute.agentId);
+        return this.registry.getAgentSync(bestRoute.agentId) || null;
     }
 
 

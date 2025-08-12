@@ -36,6 +36,8 @@ export class A2AAgentRegistry extends EventEmitter {
     private cleanupInterval?: NodeJS.Timeout;
     private config?: A2AConfig;
     private agentHealth = new Map<string, AgentHealth>();
+    private agentMetadata = new Map<string, Record<string, any>>();
+    private eventBus?: EventEmitter;
 
     constructor(configOrEventBus: A2AConfig | EventEmitter) {
         super();
@@ -43,6 +45,7 @@ export class A2AAgentRegistry extends EventEmitter {
         // Handle both constructor signatures for backward compatibility
         if (configOrEventBus instanceof EventEmitter) {
             // Test mode - EventEmitter passed
+            this.eventBus = configOrEventBus;
             // No config needed for tests
         } else {
             // Production mode - A2AConfig passed
@@ -51,6 +54,18 @@ export class A2AAgentRegistry extends EventEmitter {
         
         this.setupCleanupInterval();
         this.initializeCategoryIndex();
+    }
+
+    /**
+     * Emit event to the appropriate event bus
+     */
+    private emitEvent(event: string, data: any): void {
+        // If we have an external event bus (test mode), use it
+        if (this.eventBus) {
+            this.eventBus.emit(event, data);
+        }
+        // Always emit on self for backward compatibility
+        super.emit(event, data);
     }
 
     /**
@@ -116,7 +131,7 @@ export class A2AAgentRegistry extends EventEmitter {
         this.updateTopology();
 
         // Emit events
-        this.emit('agent:registered', {
+        this.emitEvent('agent:registered', {
             agentId,
             profile,
             timestamp: Date.now()
@@ -147,7 +162,7 @@ export class A2AAgentRegistry extends EventEmitter {
             }
         }
         
-        this.emit('network:topology:changed', this.getTopology());
+        this.emitEvent('network:topology:changed', this.getTopology());
         
         const result: { successful: number; failed: number; errors?: string[] } = { successful, failed };
         if (errors.length > 0) {
@@ -159,10 +174,10 @@ export class A2AAgentRegistry extends EventEmitter {
     /**
      * Unregister an agent
      */
-    async unregisterAgent(agentId: string): Promise<void> {
+    async unregisterAgent(agentId: string): Promise<boolean> {
         const agent = this.agents.get(agentId);
         if (!agent) {
-            return;
+            return false;
         }
 
         // Remove from all indices
@@ -171,15 +186,21 @@ export class A2AAgentRegistry extends EventEmitter {
         // Remove agent
         this.agents.delete(agentId);
         this.capabilities.delete(agentId);
+        this.agentHealth.delete(agentId);
+        this.agentMetadata.delete(agentId);
 
         // Update topology
         this.updateTopology();
 
-        // Emit events
-        this.emit('agent:unregistered', agentId);
-        this.emit('network:topology:changed', this.getTopology());
+        // Emit events with correct format
+        this.emitEvent('agent:unregistered', {
+            agentId,
+            timestamp: Date.now()
+        });
+        this.emitEvent('network:topology:changed', this.getTopology());
 
         console.log(`[A2A Registry] Agent unregistered: ${agentId}`);
+        return true;
     }
 
     async bulkUnregister(agentIds: string[]): Promise<{ successful: number; failed: number }> {
@@ -195,7 +216,7 @@ export class A2AAgentRegistry extends EventEmitter {
             }
         }
         
-        this.emit('network:topology:changed', this.getTopology());
+        this.emitEvent('network:topology:changed', this.getTopology());
         return { successful, failed };
     }
 
@@ -464,7 +485,14 @@ export class A2AAgentRegistry extends EventEmitter {
      * Update agent status
      */
     async updateStatus(agentId: string, status: AgentStatus): Promise<void> {
-        return this.updateAgentStatus(agentId, status);
+        try {
+            return await this.updateAgentStatus(agentId, status);
+        } catch (error) {
+            if (error instanceof AgentNotFoundError) {
+                return undefined;
+            }
+            throw error;
+        }
     }
 
     /**
@@ -476,11 +504,19 @@ export class A2AAgentRegistry extends EventEmitter {
             throw new AgentNotFoundError(agentId);
         }
 
+        const oldStatus = agent.status;
         agent.status = status;
         agent.lastSeen = new Date();
         agent.metadata.uptime = Date.now() - agent.metadata.uptime;
 
-        this.emit('agent:status:changed', { agentId, status });
+        // Emit update event with correct format
+        this.emitEvent('agent:updated', {
+            agentId,
+            updates: { status },
+            timestamp: Date.now()
+        });
+        
+        this.emitEvent('agent:status:changed', { agentId, status });
     }
 
 
@@ -517,7 +553,7 @@ export class A2AAgentRegistry extends EventEmitter {
 
         this.capabilities.set(agentId, agentCaps);
         this.updateTopology();
-        this.emit('agent:updated', { agentId, updates: { capabilities } });
+        this.emitEvent('agent:updated', { agentId, updates: { capabilities } });
     }
 
     /**
@@ -530,7 +566,7 @@ export class A2AAgentRegistry extends EventEmitter {
         }
 
         agent.lastSeen = new Date();
-        this.emit('agent:updated', { agentId, updates: { lastSeen: agent.lastSeen } });
+        this.emitEvent('agent:updated', { agentId, updates: { lastSeen: agent.lastSeen } });
     }
 
     /**
@@ -580,7 +616,7 @@ export class A2AAgentRegistry extends EventEmitter {
      */
     private updateTopology(): void {
         this.lastTopologyUpdate = new Date();
-        this.emit('network:topology:changed', this.getTopology());
+        this.emitEvent('network:topology:changed', this.getTopology());
     }
 
     /**
@@ -608,9 +644,6 @@ export class A2AAgentRegistry extends EventEmitter {
         };
     }
 
-
-
-    private agentMetadata = new Map<string, Record<string, any>>();
 
     /**
      * Set custom metadata for an agent
@@ -683,7 +716,7 @@ export class A2AAgentRegistry extends EventEmitter {
         }
 
         this.agentHealth.set(agentId, health);
-        this.emit('agent:health:updated', { agentId, health });
+        this.emitEvent('agent:health:updated', { agentId, health });
     }
 
     /**
@@ -764,7 +797,7 @@ export class A2AAgentRegistry extends EventEmitter {
             removed.push(agent.agentId);
         }
 
-        this.emit('agents:cleanup', { removed, timestamp: Date.now() });
+        this.emitEvent('agents:cleanup', { removed, timestamp: Date.now() });
         return removed;
     }
 
@@ -831,14 +864,14 @@ export class A2AAgentRegistry extends EventEmitter {
     /**
      * Get agent by ID (synchronous)
      */
-    getAgentSync(agentId: string): AgentProfile | null {
-        return this.agents.get(agentId) || null;
+    getAgentSync(agentId: string): AgentProfile | undefined {
+        return this.agents.get(agentId);
     }
 
     /**
      * Get agent by ID (async for compatibility with tests)
      */
-    async getAgent(agentId: string): Promise<AgentProfile | null> {
+    async getAgent(agentId: string): Promise<AgentProfile | undefined> {
         return this.getAgentSync(agentId);
     }
 
@@ -869,6 +902,6 @@ export class A2AAgentRegistry extends EventEmitter {
         this.capabilityIndex.clear();
         this.categoryIndex.clear();
 
-        this.emit('shutdown');
+        this.emitEvent('shutdown', {});
     }
 }

@@ -73,17 +73,17 @@ export class MessageRouter extends EventEmitter {
             // Handle different message types
             switch (message.type) {
                 case A2AMessageType.TASK_REQUEST:
-                    return this.routeTaskRequest(message);
+                    return await this.routeTaskRequest(message);
                 case A2AMessageType.CAPABILITY_REQUEST:
-                    return this.routeCapabilityRequest(message);
+                    return await this.routeCapabilityRequest(message);
                 case A2AMessageType.WORKFLOW_START:
-                    return this.routeWorkflowMessage(message);
+                    return await this.routeWorkflowMessage(message);
                 case A2AMessageType.HEALTH_CHECK:
-                    return this.routeHealthCheck(message);
+                    return await this.routeHealthCheck(message);
                 case A2AMessageType.AGENT_QUERY:
-                    return this.routeAgentQuery(message);
+                    return await this.routeAgentQuery(message);
                 default:
-                    return this.routeGenericMessage(message);
+                    return await this.routeGenericMessage(message);
             }
         } catch (error) {
             const errorResponse: A2AResponse = {
@@ -236,6 +236,16 @@ export class MessageRouter extends EventEmitter {
 
     private async routeTaskRequest(message: A2AMessage): Promise<A2AResponse> {
         const task = message.payload as TaskDefinition;
+
+        // If message has a specific target (not 'auto' or 'broadcast'), route directly
+        if (message.to && message.to !== 'broadcast' && message.to !== 'auto') {
+            return this.routeToSpecificAgent(message);
+        }
+
+        // If no capability specified and not auto, treat as generic message
+        if (!task.requiredCapability && message.to !== 'auto') {
+            return this.routeGenericMessage(message);
+        }
 
         // Find capable agents
         const agents = await this.registry.findByCapability(task.requiredCapability);
@@ -494,14 +504,14 @@ export class MessageRouter extends EventEmitter {
 
     private setupMessageProcessor(): void {
         // Process messages from queues every 10ms
-        setInterval(() => {
+        this.messageProcessor = setInterval(() => {
             this.processMessageQueues();
         }, 10);
     }
 
     private setupRoutingTableUpdater(): void {
         // Update routing table every 30 seconds
-        setInterval(() => {
+        this.routingUpdate = setInterval(() => {
             this.updateRoutingTable();
         }, 30000);
 
@@ -513,8 +523,8 @@ export class MessageRouter extends EventEmitter {
         const priorities: A2APriority[] = ['urgent', 'high', 'normal', 'low'];
 
         for (const priority of priorities) {
-            const queue = this.messageQueue.get(priority)!;
-            if (queue.length > 0) {
+            const queue = this.messageQueue.get(priority);
+            if (queue && queue.length > 0) {
                 const queuedMessage = queue.shift()!;
                 this.processQueuedMessage(queuedMessage);
                 break; // Process one message per cycle

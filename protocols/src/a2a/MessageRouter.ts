@@ -31,6 +31,22 @@ interface QueuedMessage {
     retries: number;
 }
 
+interface CircuitBreakerConfig {
+    failureThreshold: number;      // Number of failures before opening (default: 5)
+    successThreshold: number;       // Number of successes to close (default: 2)
+    timeout: number;               // Time before half-open in ms (default: 60000)
+    monitoringPeriod: number;      // Monitoring window in ms (default: 120000)
+}
+
+interface CircuitBreakerState {
+    status: 'closed' | 'open' | 'half-open';
+    failures: number;
+    successes: number;
+    lastFailureTime?: Date;
+    lastSuccessTime?: Date;
+    nextAttempt?: Date;
+}
+
 export class MessageRouter extends EventEmitter {
     private registry: A2AAgentRegistry;
     private messageQueue = new Map<A2APriority, QueuedMessage[]>();
@@ -40,6 +56,16 @@ export class MessageRouter extends EventEmitter {
     private config: A2AConfig;
     private messageProcessor?: NodeJS.Timeout;
     private routingUpdate?: NodeJS.Timeout;
+    
+    // Circuit Breaker additions
+    private circuitBreakers = new Map<string, CircuitBreakerState>();
+    private circuitConfig: CircuitBreakerConfig = {
+        failureThreshold: 5,
+        successThreshold: 2,
+        timeout: 60000, // 1 minute
+        monitoringPeriod: 120000 // 2 minutes
+    };
+    private circuitBreakerConfigs = new Map<string, CircuitBreakerConfig>();
 
     constructor(registry: A2AAgentRegistry, config: A2AConfig) {
         super();
@@ -222,12 +248,166 @@ export class MessageRouter extends EventEmitter {
             queueSizes.set(priority, queue.length);
         }
 
+        // Circuit breaker stats
+        const circuitStats = {
+            total: this.circuitBreakers.size,
+            open: 0,
+            halfOpen: 0,
+            closed: 0
+        };
+        
+        for (const breaker of this.circuitBreakers.values()) {
+            switch (breaker.status) {
+                case 'open': circuitStats.open++; break;
+                case 'half-open': circuitStats.halfOpen++; break;
+                case 'closed': circuitStats.closed++; break;
+            }
+        }
+
         return {
             activeMessages: this.activeMessages.size,
             queueSizes: Object.fromEntries(queueSizes),
             routingTableSize: this.routingTable.size,
-            totalRoutes: Array.from(this.routingTable.values()).reduce((sum, routes) => sum + routes.length, 0)
+            totalRoutes: Array.from(this.routingTable.values()).reduce((sum, routes) => sum + routes.length, 0),
+            circuitBreakers: circuitStats
         };
+    }
+
+    // ================================
+    // Circuit Breaker Methods
+    // ================================
+    
+    /**
+     * Enable circuit breaker for a specific agent
+     */
+    public enableCircuitBreaker(
+        agentId: string, 
+        config?: Partial<CircuitBreakerConfig>
+    ): void {
+        const finalConfig = { ...this.circuitConfig, ...config };
+        
+        this.circuitBreakers.set(agentId, {
+            status: 'closed',
+            failures: 0,
+            successes: 0
+        });
+        
+        // Store custom config if provided
+        if (config) {
+            this.circuitBreakerConfigs.set(agentId, finalConfig);
+        }
+        
+        this.emit('circuit:enabled', { agentId, config: finalConfig });
+    }
+
+    /**
+     * Check if circuit is open for an agent
+     */
+    public isCircuitOpen(agentId: string): boolean {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return false;
+        
+        // Check if we should transition to half-open
+        if (breaker.status === 'open' && breaker.nextAttempt) {
+            if (new Date() >= breaker.nextAttempt) {
+                this.transitionToHalfOpen(agentId);
+                return false; // Allow one attempt
+            }
+        }
+        
+        return breaker.status === 'open';
+    }
+
+    /**
+     * Record a failure for circuit breaker
+     */
+    public recordFailure(agentId: string, error?: Error): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return;
+        
+        const config = this.circuitBreakerConfigs.get(agentId) || this.circuitConfig;
+        
+        breaker.failures++;
+        breaker.lastFailureTime = new Date();
+        
+        // Check if we should open the circuit
+        if (breaker.status === 'closed' || breaker.status === 'half-open') {
+            if (breaker.failures >= config.failureThreshold) {
+                this.openCircuit(agentId);
+            }
+        }
+        
+        // If half-open, immediately go back to open
+        if (breaker.status === 'half-open') {
+            this.openCircuit(agentId);
+        }
+        
+        this.emit('circuit:failure', { 
+            agentId, 
+            failures: breaker.failures,
+            error: error?.message 
+        });
+    }
+
+    /**
+     * Record a success for circuit breaker
+     */
+    public recordSuccess(agentId: string): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return;
+        
+        const config = this.circuitBreakerConfigs.get(agentId) || this.circuitConfig;
+        
+        breaker.successes++;
+        breaker.lastSuccessTime = new Date();
+        
+        // If half-open and enough successes, close the circuit
+        if (breaker.status === 'half-open') {
+            if (breaker.successes >= config.successThreshold) {
+                this.closeCircuit(agentId);
+            }
+        }
+        
+        // Reset failure count on success in closed state
+        if (breaker.status === 'closed') {
+            breaker.failures = 0;
+        }
+        
+        this.emit('circuit:success', { 
+            agentId, 
+            successes: breaker.successes 
+        });
+    }
+
+    /**
+     * Get circuit breaker status for an agent
+     */
+    public getCircuitStatus(agentId: string): CircuitBreakerState | null {
+        return this.circuitBreakers.get(agentId) || null;
+    }
+
+    /**
+     * Get all circuit breaker statuses
+     */
+    public getAllCircuitStatuses(): Map<string, CircuitBreakerState> {
+        return new Map(this.circuitBreakers);
+    }
+
+    /**
+     * Reset circuit breaker for an agent
+     */
+    public resetCircuitBreaker(agentId: string): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (breaker) {
+            breaker.status = 'closed';
+            breaker.failures = 0;
+            breaker.successes = 0;
+            breaker.lastFailureTime = undefined;
+            breaker.lastSuccessTime = undefined;
+            breaker.nextAttempt = undefined;
+            
+            this.emit('circuit:reset', { agentId });
+        }
     }
 
     // ================================
@@ -338,12 +518,45 @@ export class MessageRouter extends EventEmitter {
             throw new AgentNotFoundError(message.to);
         }
 
+        // CHECK CIRCUIT BREAKER FIRST
+        if (this.isCircuitOpen(message.to)) {
+            const breaker = this.circuitBreakers.get(message.to);
+            const error = `Circuit breaker is open for agent: ${message.to}. Next attempt at: ${breaker?.nextAttempt}`;
+            
+            this.emit('message.failed', message, error);
+            
+            return {
+                success: false,
+                error,
+                metadata: {
+                    agentId: 'router',
+                    timestamp: new Date(),
+                    ...(breaker ? { 
+                        processingTime: 0,
+                        capability: `circuit:${breaker.status}`
+                    } : {})
+                }
+            };
+        }
+
         if (targetAgent.status !== AgentStatus.ONLINE) {
+            // Record failure for offline agent
+            this.recordFailure(message.to, new Error('Agent offline'));
             throw new A2AError(`Agent is not online: ${message.to}`, 'AGENT_OFFLINE', message.to);
         }
 
-        // Queue message for delivery
-        return this.queueMessage(message);
+        try {
+            const response = await this.queueMessage(message);
+            
+            // Record success on successful routing
+            this.recordSuccess(message.to);
+            
+            return response;
+        } catch (error) {
+            // Record failure on error
+            this.recordFailure(message.to, error as Error);
+            throw error;
+        }
     }
 
     private async delegateTask(agent: AgentProfile, message: A2AMessage): Promise<A2AResponse> {
@@ -568,6 +781,55 @@ export class MessageRouter extends EventEmitter {
         this.routingTable = topology.messageRoutes;
     }
 
+    // ================================
+    // Private Circuit Breaker Methods
+    // ================================
+    
+    private openCircuit(agentId: string): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return;
+        
+        const config = this.circuitBreakerConfigs.get(agentId) || this.circuitConfig;
+        
+        breaker.status = 'open';
+        breaker.nextAttempt = new Date(Date.now() + config.timeout);
+        breaker.successes = 0;
+        
+        this.emit('circuit:opened', { 
+            agentId, 
+            nextAttempt: breaker.nextAttempt 
+        });
+        
+        console.warn(`🔴 Circuit breaker OPENED for agent: ${agentId}`);
+    }
+
+    private closeCircuit(agentId: string): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return;
+        
+        breaker.status = 'closed';
+        breaker.failures = 0;
+        breaker.successes = 0;
+        breaker.nextAttempt = undefined;
+        
+        this.emit('circuit:closed', { agentId });
+        
+        console.log(`🟢 Circuit breaker CLOSED for agent: ${agentId}`);
+    }
+
+    private transitionToHalfOpen(agentId: string): void {
+        const breaker = this.circuitBreakers.get(agentId);
+        if (!breaker) return;
+        
+        breaker.status = 'half-open';
+        breaker.failures = 0;
+        breaker.successes = 0;
+        
+        this.emit('circuit:half-open', { agentId });
+        
+        console.log(`🟡 Circuit breaker HALF-OPEN for agent: ${agentId}`);
+    }
+
     /**
      * Cleanup on shutdown
      */
@@ -583,6 +845,8 @@ export class MessageRouter extends EventEmitter {
         this.activeMessages.clear();
         this.routingTable.clear();
         this.messageHistory.clear();
+        this.circuitBreakers.clear();
+        this.circuitBreakerConfigs.clear();
 
         this.emit('shutdown');
     }

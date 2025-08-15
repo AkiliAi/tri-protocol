@@ -379,40 +379,7 @@ export class A2AProtocol extends EventEmitter {
         if (!task) throw new Error(`Task ${taskId} not found`);
         return task;
     }
-    // async getTask(taskId: string, historyLength?: number): Promise<Task> {
-    //     const task = this.tasks.get(taskId);
-    //     const agentId = task ? await this.findAgentForTask(taskId) : null;
-    //
-    //     if (!agentId) {
-    //         throw new A2AError('Task not found', 'TASK_NOT_FOUND');
-    //     }
-    //
-    //     const targetAgent = await this.getAgent(agentId);
-    //
-    //     const request: GetTaskRequest = {
-    //         jsonrpc: '2.0',
-    //         id: uuidv4(),
-    //         method: 'tasks/get',
-    //         parameters: {
-    //             id: taskId,
-    //             historyLength: historyLength
-    //         }
-    //     };
-    //
-    //     const response = await this.sendSecureJSONRPC(
-    //         targetAgent.metadata.location,
-    //         request
-    //     );
-    //
-    //     if ('error' in response && response.error) {
-    //         throw this.handleJSONRPCError(response.error);
-    //     }
-    //
-    //     const updatedTask = (response as GetTaskSuccessResponse).result;
-    //     this.tasks.set(taskId, updatedTask);
-    //
-    //     return updatedTask;
-    // }
+
 
     /**
      * Cancel a task

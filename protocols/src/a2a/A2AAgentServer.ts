@@ -13,6 +13,8 @@ import cors from 'cors';
 import bodyParser from 'body-parser';
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';
+import {CorsOptions} from "cors";
+import cookieParser from 'cookie-parser';
 import {
     AgentCard,
     JSONRPCRequest,
@@ -31,6 +33,7 @@ import {
     Task,
     Message,
     TaskStatus,
+    TaskState,
     TaskStatusUpdateEvent,
     TaskArtifactUpdateEvent,
     SecurityScheme,
@@ -45,7 +48,7 @@ import { SecurityManager } from './SecurityManager';
 export interface A2AServerConfig {
     port: number;
     host?: string;
-    cors?: cors.CorsOptions;
+    cors?: CorsOptions;
     maxRequestSize?: string;
     enableHealthCheck?: boolean;
     enableMetrics?: boolean;
@@ -61,7 +64,7 @@ export interface MessageHandler {
 }
 
 export interface StreamHandler {
-    (message: Message, config?: any, onUpdate?: (event: any) => void): Promise<Task>;
+    (message: Message, config?: any, onUpdate?: (event: TaskStatusUpdateEvent | TaskArtifactUpdateEvent) => void): Promise<Task>;
 }
 
 export class A2AAgentServer extends EventEmitter {
@@ -118,12 +121,21 @@ export class A2AAgentServer extends EventEmitter {
         this.app.use(bodyParser.json({ limit: this.config.maxRequestSize || '10mb' }));
         this.app.use(bodyParser.urlencoded({ extended: true }));
 
+        // Cookie parser
+        this.app.use(cookieParser());
+
         // Request logging
         this.app.use((req, res, next) => {
             this.metrics.totalRequests++;
             console.log(`[A2A Server] ${req.method} ${req.path}`);
             next();
         });
+
+        //route ??
+
+
+
+
 
         // Error handling
         this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -139,6 +151,7 @@ export class A2AAgentServer extends EventEmitter {
                 }
             });
         });
+
     }
 
     /**
@@ -464,9 +477,7 @@ export class A2AAgentServer extends EventEmitter {
                 id: uuidv4(),
                 contextId: message.contextId || uuidv4(),
                 status: {
-                    // state: { Submitted: 'submitted' },
-                    // timestamp: new Date().toISOString()
-                    state: 'submitted' as any,
+                    state: 'submitted' as TaskState,
                     timestamp: new Date().toISOString()
                 },
                 kind: 'task',
@@ -589,9 +600,7 @@ export class A2AAgentServer extends EventEmitter {
 
         // Cancel task
         task.status = {
-            // state: { Cancelled: 'cancelled' },
-            // timestamp: new Date().toISOString()
-            state: 'Cancelled' as any,
+            state: 'cancelled' as TaskState,
             timestamp: new Date().toISOString()
         };
 
@@ -698,9 +707,7 @@ export class A2AAgentServer extends EventEmitter {
                 id: uuidv4(),
                 contextId: message.contextId || uuidv4(),
                 status: {
-                    // state: { Working: 'working' },
-                    // timestamp: new Date().toISOString()
-                    state: 'Working' as any,
+                    state: 'working' as TaskState,
                     timestamp: new Date().toISOString()
                 },
                 kind: 'task',
@@ -708,27 +715,41 @@ export class A2AAgentServer extends EventEmitter {
                 updatedAt: new Date()
             };
 
-            // Simulate processing with updates
+            // // Simulate processing with updates
+            // if (onUpdate) {
+            //     for (let i = 0; i < 3; i++) {
+            //         await new Promise(resolve => setTimeout(resolve, 1000));
+            //         onUpdate({
+            //             taskId: task.id,
+            //             contextId: task.contextId,
+            //             kind: 'status-update',
+            //             status: {
+            //                 state: { Working: 'working' },
+            //                 timestamp: new Date().toISOString()
+            //             },
+            //             metadata: { progress: (i + 1) * 33 }
+            //         });
+            //     }
+            // }
+
+            // Real processing would go here
             if (onUpdate) {
-                for (let i = 0; i < 3; i++) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    onUpdate({
-                        taskId: task.id,
-                        contextId: task.contextId,
-                        kind: 'status-update',
-                        status: {
-                            state: { Working: 'working' },
-                            timestamp: new Date().toISOString()
-                        },
-                        metadata: { progress: (i + 1) * 33 }
-                    });
-                }
+                onUpdate({
+                    taskId: task.id,
+                    contextId: task.contextId,
+                    kind: 'status-update',
+                    status: {
+                        state: { Working: 'working' },
+                        timestamp: new Date().toISOString()
+                    },
+                    metadata: { progress: 100 }
+                });
             }
 
+
+
             task.status = {
-                // state: { Completed: 'completed' },
-                // timestamp: new Date().toISOString()
-                state: 'Completed' as any,
+                state: 'completed' as TaskState,
                 timestamp: new Date().toISOString()
             };
 

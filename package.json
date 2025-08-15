@@ -21,7 +21,6 @@
     "lint": "lerna run lint --stream",
     "dev": "lerna run dev ",
     "version": "lerna version ",
-    "prepare": "husky install",
     "format": "prettier --write \"src/**/*.ts\"",
     "type-check": "tsc --noEmit"
   },

@@ -29,7 +29,8 @@ import {
     DeleteTaskPushNotificationConfigParams,
     DeleteTaskPushNotificationConfigResponse,
     GetAuthenticatedExtendedCardResponse,
-    SecurityCredentials
+    SecurityCredentials,
+    ListTaskPushNotificationConfigSuccessResponse
 } from "./types";
 
 type A2AStreamEventData = Message | Task | TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
@@ -152,8 +153,14 @@ export class A2AClient extends EventEmitter {
             parameters: params
         };
 
+        // Auth Header if token is provided
+        const headers:any = {};
+        if ( this.config.credentials?.token) {
+            headers['Authorization'] = `Bearer ${this.config.credentials.token}`;
+        }
+
         try {
-            const response = await this.httpClient.post<JSONRPCResponse>(endpoint, request);
+            const response = await this.httpClient.post<JSONRPCResponse>(endpoint, request,{headers});
 
             if (this.isErrorResponse(response.data)) {
                 throw new A2AError(
@@ -246,7 +253,11 @@ export class A2AClient extends EventEmitter {
      * List task push notification configurations
      */
     async listTaskPushNotificationConfigs(params: TaskIdParameters): Promise<TaskPushNotificationConfig[]> {
-        const response = await this.postRpcRequest<{ result: TaskPushNotificationConfig[] }>(
+        // const response = await this.postRpcRequest<{ result: TaskPushNotificationConfig[] }>(
+        //     'tasks/pushNotificationConfig/list',
+        //     params
+        // );
+        const response = await this.postRpcRequest<ListTaskPushNotificationConfigSuccessResponse>(
             'tasks/pushNotificationConfig/list',
             params
         );
@@ -288,7 +299,7 @@ export class A2AClient extends EventEmitter {
             jsonrpc: '2.0',
             id: this.getNextRequestId(),
             method: 'tasks/resubscribe',
-            params
+            parameters: params
         };
 
         const response = await fetch(endpoint, {
@@ -361,6 +372,20 @@ export class A2AClient extends EventEmitter {
         }
     }
 
+
+    /**
+     * Check if data is a valid A2A stream event
+     */
+
+    private isA2AStreamEventData(data: any): data is A2AStreamEventData {
+        return data && (
+            (data.kind === 'message') ||
+            (data.kind === 'task') ||
+            (data.kind === 'status-update') ||
+            (data.kind === 'artifact-update')
+        );
+    }
+
     /**
      * Process SSE event data
      */
@@ -369,14 +394,18 @@ export class A2AClient extends EventEmitter {
             const parsed = JSON.parse(data);
 
             // Handle JSONRPC response wrapper
-            if (parsed.jsonrpc && parsed.result) {
-                return parsed.result as A2AStreamEventData;
+            if (parsed.jsonrpc && parsed.result){
+                const result = parsed.result;
+                if (this.isA2AStreamEventData(result)) {
+                    return result;
+                }
             }
 
             // Direct event data
-            if (parsed.kind) {
-                return parsed as A2AStreamEventData;
+            if (this.isA2AStreamEventData(parsed)) {
+                return parsed ;
             }
+
 
             return null;
         } catch (error) {

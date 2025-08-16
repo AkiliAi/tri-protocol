@@ -15,12 +15,45 @@ import {
   Route
 } from '../../../../protocols/src/a2a/types';
 
+import {A2AClient} from '../../../../protocols/src/a2a/A2AClient';
+
+// Mock A2AClient
+jest.mock('../../../../protocols/src/a2a/A2AClient');
+
 describe('MessageRouter', () => {
   let router: MessageRouter;
   let registry: A2AAgentRegistry;
   let config: A2AConfig;
+  let mockClient: jest.Mocked<A2AClient>;
 
   beforeEach(() => {
+    // Setup mock A2AClient
+    mockClient = {
+      sendMessage: jest.fn(() => Promise.resolve({
+        jsonrpc: '2.0',
+        id: '1',
+        result: {
+          kind: 'message',
+          messageId: 'mock-response-1',
+          role: 'agent',
+          parts: [{ kind: 'text', text: 'Mock response' }]
+        }
+      })),
+      close: jest.fn(),
+      on: jest.fn(),
+      emit: jest.fn(),
+      getAgentCard: jest.fn(() => Promise.resolve({
+        protocolVersion: '1.0',
+        name: 'Mock Agent',
+        url: 'http://localhost:8080/jsonrpc',
+        capabilities: []
+      }))
+    } as any;
+
+    // Mock constructor
+    (A2AClient as jest.MockedClass<typeof A2AClient>).mockImplementation(() => mockClient);
+
+
     config = {
       networkName: 'test-network',
       broadcastInterval: 30000,
@@ -46,9 +79,11 @@ describe('MessageRouter', () => {
 
   describe('Message Routing with A2AMessage', () => {
     it('should route A2AMessage to correct agent', async () => {
-      // Register target agent first
       const targetAgent = createTestAgent('agent-123');
       await registry.registerAgent(targetAgent);
+      
+      // Update endpoints from registry
+      await router.updateEndpointsFromRegistry();
 
       const message: A2AMessage = {
         id: 'msg-001',
@@ -61,12 +96,18 @@ describe('MessageRouter', () => {
         priority: 'normal'
       };
 
+      // Give time for processing
       const response = await router.routeMessage(message);
+
+      // Wait for message processing
+      await new Promise(resolve => setTimeout(resolve, 20));
 
       expect(response).toBeDefined();
       expect(response.success).toBe(true);
-      expect(response.metadata?.agentId).toBe('router');
+      expect(mockClient.sendMessage).toHaveBeenCalled(); // ✅ Vérifier l'appel
     });
+
+    // Test already defined above, removing duplicate
 
     it('should handle broadcast messages', async () => {
       // Register multiple agents
@@ -105,6 +146,9 @@ describe('MessageRouter', () => {
 
       await registry.registerAgent(calcAgent);
       await registry.registerAgent(dataAgent);
+      
+      // Update endpoints from registry
+      await router.updateEndpointsFromRegistry();
 
       const taskMessage: A2AMessage = {
         id: 'task-001',
@@ -124,6 +168,9 @@ describe('MessageRouter', () => {
       };
 
       const response = await router.routeMessage(taskMessage);
+      
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 20));
 
       expect(response.success).toBe(true);
       // Router should have found calc-agent for calculator capability
@@ -132,6 +179,9 @@ describe('MessageRouter', () => {
     it('should respect message priority', async () => {
       const agent = createTestAgent('priority-agent');
       await registry.registerAgent(agent);
+      
+      // Update endpoints from registry
+      await router.updateEndpointsFromRegistry();
 
       const urgentMessage: A2AMessage = {
         id: 'urgent-001',
@@ -214,6 +264,9 @@ describe('MessageRouter', () => {
     it('should handle health check messages', async () => {
       const agent = createTestAgent('healthy-agent');
       await registry.registerAgent(agent);
+      
+      // Update endpoints from registry
+      await router.updateEndpointsFromRegistry();
 
       const healthCheck: A2AMessage = {
         id: 'health-001',
@@ -227,6 +280,9 @@ describe('MessageRouter', () => {
       };
 
       const response = await router.routeMessage(healthCheck);
+      
+      // Wait for async processing
+      await new Promise(resolve => setTimeout(resolve, 20));
 
       expect(response.success).toBe(true);
     });
@@ -642,7 +698,7 @@ function createTestAgent(id: string, capabilityName = 'test-capability'): AgentP
     },
     metadata: {
       version: '1.0.0',
-      location: `agent://${id}`,
+      location: `http://localhost:${8080 + Math.floor(Math.random() * 100)}`,
       load: 50,
       uptime: Date.now(),
       capabilities_count: 1,

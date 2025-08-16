@@ -272,6 +272,7 @@ export interface AgentMetadata {
         success_rate: number;
         total_requests: number;
     };
+    [key: string]: any;  // Autres métadonnées
     registeredAt: Date; // When the agent was registered
     lastUpdated: Date; // When the agent was last updated
 }
@@ -556,6 +557,8 @@ export interface MessageSendConfiguration {
     historyLength?: number;
     pushNotificationConfig?: PushNotificationConfig;
     blocking?: boolean;
+    timeout?: number; // Timeout for the message send operation in milliseconds
+    retries?: number; // Number of retries for sending the message
 }
 
 export interface MessageSendParameters {

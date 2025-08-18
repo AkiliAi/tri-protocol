@@ -1,12 +1,16 @@
 /**
  * Test suite for A2AProtocol
- *
  */
 
 
 // tests/unit/protocols/a2a/A2AProtocol.test.ts
-import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { A2AProtocol } from '../../../../protocols/src/a2a/A2AProtocol';
+import { A2AAgentServer } from '../../../../protocols/src/a2a/A2AAgentServer';
+import { RegistryService } from '../../../../protocols/src/a2a/RegistryService';
+import { HybridDiscovery } from '../../../../protocols/src/a2a/HybridDiscovery';
+import { MessageRouter } from '../../../../protocols/src/a2a/MessageRouter';
+import { A2AAgentRegistry } from '../../../../protocols/src/a2a/A2AAgentRegistry';
+import { SecurityManager } from '../../../../protocols/src/a2a/SecurityManager';
 import {
   AgentProfile,
   AgentStatus,
@@ -19,31 +23,131 @@ import {
   A2APriority,
   AgentCard,
   TransportProtocol,
-  TextPart
+  TextPart,
+  A2AMessage,
+  A2AMessageType
+
 } from '../../../../protocols/src/a2a/types';
 
-describe('A2AProtocol', () => {
+import { A2AProtocolConfig } from '../../../../protocols/src/a2a/A2AProtocol';
+
+describe('A2AProtocol Core Functionality', () => {
   let protocol: A2AProtocol;
+  let mockAgentCard: AgentCard;
+  let config: A2AProtocolConfig;
 
   beforeEach(async () => {
-    const agentCard: AgentCard = {
-      protocolVersion: '1.0',
-      name: 'test-system',
+    mockAgentCard = {
+      protocolVersion: '1.0.0',
+      name: 'test-agent-main',
+      description: 'Main test agent',
       url: 'http://localhost:8080',
       preferredTransport: TransportProtocol.JSONRPC,
       skills: [],
-      capabilities: [],
+      capabilities: [
+        {
+          id: 'cap-1',
+          name: 'analysis',
+          description: 'Data analysis capability',
+          category: CapabilityCategory.ANALYSIS,
+          inputs: [],
+          outputs: [],
+          cost: 50,
+          reliability: 0.95,
+          version: '1.0.0'
+        }
+      ],
       systemFeatures: {
         streaming: true,
-        pushNotifications: false
+        pushNotifications: true
       }
     };
 
-    protocol = new A2AProtocol({ agentCard });
+    config = {
+      agentCard: mockAgentCard,
+      discovery: false, // Disabled by default for unit tests
+      network: {
+        timeout: 5000,
+        retries: 2
+      }
+    };
+    
+    protocol = new A2AProtocol(config);
   });
 
   afterEach(async () => {
     await protocol.shutdown();
+  });
+
+  describe('Protocol Initialization', () => {
+    it('should initialize with minimal config', () => {
+      expect(() => new A2AProtocol(config)).not.toThrow();
+    });
+
+    it('should initialize registry and router', () => {
+      const testProtocol = new A2AProtocol(config);
+      
+      // Verify internal components are initialized
+      expect((testProtocol as any).registry).toBeDefined();
+      expect((testProtocol as any).router).toBeDefined();
+      expect((testProtocol as any).securityManager).toBeDefined();
+    });
+
+    it('should setup event handlers', () => {
+      const eventSpy = jest.fn();
+      const testProtocol = new A2AProtocol(config);
+      
+      testProtocol.on('agent:registered', eventSpy);
+      testProtocol.registerAgent({
+        agentId: 'test-1',
+        agentType: 'test',
+        status: AgentStatus.ONLINE,
+        capabilities: [],
+        systemFeatures: {},
+        metadata: {} as any,
+        lastSeen: new Date()
+      });
+
+      expect(eventSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Message Routing', () => {
+    it('should route messages through MessageRouter', async () => {
+      const message: A2AMessage = {
+        id: 'msg-1',
+        role: 'agent',
+        from: 'agent-1',
+        to: 'agent-2',
+        type: A2AMessageType.TASK_REQUEST,
+        payload: { test: true },
+        timestamp: new Date(),
+        priority: 'normal'
+      };
+
+      const routerSpy = jest.spyOn((protocol as any).router, 'routeMessage');
+      await protocol.routeMessage(message);
+
+      expect(routerSpy).toHaveBeenCalledWith(message);
+    });
+
+    it('should broadcast messages', async () => {
+      const message: A2AMessage = {
+        id: 'msg-2',
+        role: 'agent',
+        from: 'agent-1',
+        to: 'broadcast',
+        type: A2AMessageType.AGENT_ANNOUNCE,
+        payload: { announcement: 'Hello' },
+        timestamp: new Date(),
+        priority: 'low'
+      };
+
+      const routerSpy = jest.spyOn((protocol as any).router, 'broadcastMessage');
+      await protocol.broadcastMessage(message);
+
+      expect(routerSpy).toHaveBeenCalledWith(message);
+    });
   });
 
   describe('Agent Registration', () => {
@@ -487,6 +591,32 @@ describe('A2AProtocol', () => {
       expect(protocol.getActiveTasks()).toHaveLength(0);
     });
   });
+
+  // describe('Security Management', () => {
+  //   it('should validate authentication for secure messages', async () => {
+  //     const securitySpy = jest.spyOn((protocol as any).securityManager, 'getAuthHeaders');
+  //
+  //     const agent = createTestAgentProfile('secure-agent');
+  //     protocol.registerAgent(agent);
+  //
+  //     const message: Message = {
+  //       role: 'user',
+  //       parts: [{ kind: 'text', text: 'Secure message' }],
+  //       messageId: 'sec-1',
+  //       kind: 'message'
+  //     };
+  //
+  //     jest.spyOn(protocol as any, 'sendSecureJSONRPC').mockResolvedValue({
+  //       jsonrpc: '2.0',
+  //       id: 'sec-1',
+  //       result: message
+  //     });
+  //
+  //     await protocol.sendMessage('secure-agent', message);
+  //
+  //     expect(securitySpy).toHaveBeenCalled();
+  //   });
+  // });
 
   describe('Event Emissions', () => {
     it('should emit correct lifecycle events', async () => {

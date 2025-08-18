@@ -7,3 +7,5 @@ export { SecurityManager } from './SecurityManager';
 export { A2AAgentServer } from './A2AAgentServer';
 export { A2AClient } from './A2AClient';
 export { AgentExecutor } from './AgentExecutor';
+export { HybridDiscovery } from './HybridDiscovery';
+export { RegistryService } from './RegistryService';

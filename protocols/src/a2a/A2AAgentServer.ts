@@ -232,7 +232,7 @@ export class A2AAgentServer extends EventEmitter {
         }
 
         this.io = new SocketServer(this.httpServer, {
-            cors: this.config.cors || { origin: '*' }
+            cors: this.config.cors || { origin: '*',credentials: false },
         });
 
         this.io.on('connection', (socket) => {
@@ -409,7 +409,7 @@ export class A2AAgentServer extends EventEmitter {
                 jsonrpc: '2.0',
                 id: request.id || null,
                 error: {
-                    code: -32603,
+                    code: -10011,
                     message: error instanceof Error ? error.message : 'Internal error'
                 }
             };
@@ -420,7 +420,14 @@ export class A2AAgentServer extends EventEmitter {
      * Handle send message request
      */
     private async handleSendMessage(request: SendMessageRequest): Promise<JSONRPCResponse> {
-        const { message, configuration } = request.parameters;
+        const params = request.parameters || (request as any).params;
+
+        if (!params) {
+            throw new InvalidRequestError('Missing parameters');
+        }
+
+        const { message, configuration } = params;
+        // const { message, configuration } = request.parameters;
 
         // Get appropriate handler
         const handler = this.messageHandlers.get('default') || this.messageHandlers.get(message.parts[0]?.kind || 'text');

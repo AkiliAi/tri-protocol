@@ -28,5 +28,8 @@
   },
   "forwardPorts": [3000, 8080],
   "postCreateCommand": "npm install",
-  "remoteUser": "vscode"
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+  ]
 }

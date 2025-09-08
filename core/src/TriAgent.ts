@@ -18,6 +18,17 @@ import {
     A2AMessageType
 } from '@protocols/a2a/types';
 import { v4 as uuidv4 } from 'uuid';
+import { Logger } from '../../logger';
+import { MCPClientManager } from '@protocols/mcp';
+import type {
+    MCPConfig,
+    MCPServerConnection,
+    MCPToolDescription,
+    MCPResource,
+    ToolExecutionResponse,
+    ResourceReadResponse,
+    AgentMCPCapabilities
+} from '@protocols/mcp';
 
 export interface TriAgentConfig {
     id: string;
@@ -27,17 +38,29 @@ export interface TriAgentConfig {
     capabilities: AgentCapability[];
     systemFeatures?: AgentSystemFeatures;
     metadata?: Record<string, any>;
+    enableMCP?: boolean;
+    mcpConfig?: Partial<MCPConfig>;
 }
 
-export abstract class TriAgent extends EventEmitter {
+export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilities {
     protected config: TriAgentConfig;
     protected triProtocol?: TriProtocol;
     protected status: AgentStatus = AgentStatus.OFFLINE;
     protected profile?: AgentProfile;
+    protected logger: Logger;
+    public mcpManager?: MCPClientManager;
 
     constructor(config: TriAgentConfig) {
         super();
         this.config = config;
+        this.logger = Logger.getLogger(`TriAgent:${config.name}`);
+        
+        // Initialize MCP if enabled
+        if (config.enableMCP) {
+            this.mcpManager = new MCPClientManager(config.mcpConfig || {});
+            this.setupMCPEventHandlers();
+            this.logger.info('MCP support enabled for agent', { agentId: config.id });
+        }
     }
 
     async connect(triProtocol: TriProtocol): Promise<void> {
@@ -84,6 +107,11 @@ export abstract class TriAgent extends EventEmitter {
             await this.triProtocol.unregisterAgent(this.config.id);
         }
 
+        // Disconnect all MCP servers if enabled
+        if (this.mcpManager) {
+            await this.mcpManager.disconnectAll();
+        }
+
         this.status = AgentStatus.OFFLINE;
         this.removeAllListeners();
 
@@ -123,6 +151,14 @@ export abstract class TriAgent extends EventEmitter {
 
     abstract processMessage(message: Message): Promise<Message | Task>;
     abstract processTask(task: Task): Promise<void>;
+    
+    /**
+     * Optional: Override to implement custom tool selection logic
+     * @param tools Available tools
+     * @param context Current context
+     * @returns Selected tool name or null
+     */
+    protected selectTool?(tools: MCPToolDescription[], context?: any): string | null;
 
     // === Helper Methods ===
 
@@ -198,5 +234,161 @@ export abstract class TriAgent extends EventEmitter {
 
     getStatus(): AgentStatus {
         return this.status;
+    }
+
+    // === MCP Methods ===
+
+    /**
+     * Setup MCP event handlers
+     */
+    private setupMCPEventHandlers(): void {
+        if (!this.mcpManager) return;
+
+        this.mcpManager.on('server:connected', (serverName, capabilities) => {
+            this.logger.info(`MCP server connected: ${serverName}`, { capabilities });
+            this.emit('mcp:server:connected', serverName, capabilities);
+        });
+
+        this.mcpManager.on('server:disconnected', (serverName, reason) => {
+            this.logger.warn(`MCP server disconnected: ${serverName}`, { reason });
+            this.emit('mcp:server:disconnected', serverName, reason);
+        });
+
+        this.mcpManager.on('tool:executed', (response) => {
+            this.logger.debug(`MCP tool executed: ${response.toolName}`, {
+                success: response.success,
+                duration: response.duration
+            });
+            this.emit('mcp:tool:executed', response);
+        });
+
+        this.mcpManager.on('error', (error, context) => {
+            this.logger.error('MCP error', error, context);
+            this.emit('mcp:error', error, context);
+        });
+    }
+
+    /**
+     * Check if MCP is enabled for this agent
+     */
+    isMCPEnabled(): boolean {
+        return this.config.enableMCP === true && this.mcpManager !== undefined;
+    }
+
+    /**
+     * Connect to an MCP server
+     */
+    async connectMCPServer(connection: MCPServerConnection): Promise<void> {
+        if (!this.mcpManager) {
+            throw new Error('MCP is not enabled for this agent');
+        }
+        
+        await this.mcpManager.connect(connection);
+        this.logger.info(`Connected to MCP server: ${connection.name}`);
+    }
+
+    /**
+     * Disconnect from an MCP server
+     */
+    async disconnectMCPServer(serverName: string): Promise<void> {
+        if (!this.mcpManager) {
+            throw new Error('MCP is not enabled for this agent');
+        }
+        
+        await this.mcpManager.disconnect(serverName);
+        this.logger.info(`Disconnected from MCP server: ${serverName}`);
+    }
+
+    /**
+     * Get available MCP tools
+     */
+    getAvailableTools(): MCPToolDescription[] {
+        if (!this.mcpManager) {
+            return [];
+        }
+        
+        return this.mcpManager.getAvailableTools();
+    }
+
+    /**
+     * Use an MCP tool
+     */
+    async useTool(toolName: string, args?: any): Promise<ToolExecutionResponse> {
+        if (!this.mcpManager) {
+            throw new Error('MCP is not enabled for this agent');
+        }
+        
+        const response = await this.mcpManager.executeTool({
+            toolName,
+            arguments: args
+        });
+        
+        this.logger.info(`Executed MCP tool: ${toolName}`, {
+            success: response.success,
+            duration: response.duration
+        });
+        
+        return response;
+    }
+
+    /**
+     * List MCP resources
+     */
+    async listResources(serverName?: string): Promise<MCPResource[]> {
+        if (!this.mcpManager) {
+            throw new Error('MCP is not enabled for this agent');
+        }
+        
+        if (serverName) {
+            return this.mcpManager.listResources(serverName);
+        }
+        
+        // List from all servers
+        const allResources = await this.mcpManager.listAllResources();
+        const resources: MCPResource[] = [];
+        
+        allResources.forEach(serverResources => {
+            resources.push(...serverResources);
+        });
+        
+        return resources;
+    }
+
+    /**
+     * Read an MCP resource
+     */
+    async readResource(uri: string): Promise<ResourceReadResponse> {
+        if (!this.mcpManager) {
+            throw new Error('MCP is not enabled for this agent');
+        }
+        
+        return this.mcpManager.readResource({ uri });
+    }
+
+    /**
+     * Get MCP statistics
+     */
+    getMCPStats(): any {
+        if (!this.mcpManager) {
+            return null;
+        }
+        
+        return this.mcpManager.getStats();
+    }
+
+    /**
+     * Discover and connect to recommended MCP servers
+     * Override this method to implement custom server discovery logic
+     */
+    protected async discoverMCPServers(): Promise<void> {
+        // Override in subclass to auto-discover and connect to MCP servers
+    }
+
+    /**
+     * Helper method to process tool results and integrate with agent logic
+     */
+    protected async processToolResult(toolName: string, result: any): Promise<void> {
+        // Override in subclass to process tool results
+        this.logger.debug(`Tool result for ${toolName}`, result);
     }
 }

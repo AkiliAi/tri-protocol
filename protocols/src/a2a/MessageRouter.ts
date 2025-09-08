@@ -4,6 +4,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { Logger } from '../../../logger';
 import {
     A2AMessage,
     A2AMessageType,
@@ -50,6 +51,7 @@ interface CircuitBreakerState {
 }
 
 export class MessageRouter extends EventEmitter {
+    private logger: Logger;
     private registry: A2AAgentRegistry;
     private messageQueue = new Map<A2APriority, QueuedMessage[]>();
     private activeMessages = new Map<string, QueuedMessage>();
@@ -59,7 +61,7 @@ export class MessageRouter extends EventEmitter {
     private messageProcessor?: NodeJS.Timeout;
     private routingUpdate?: NodeJS.Timeout;
     
-    // Circuit Breaker additions
+    // Circuit Breaker additions§
     private circuitBreakers = new Map<string, CircuitBreakerState>();
     private circuitConfig: CircuitBreakerConfig = {
         failureThreshold: 5,
@@ -76,6 +78,17 @@ export class MessageRouter extends EventEmitter {
         super();
         this.registry = registry;
         this.config = config;
+        
+        // Initialize logger
+        this.logger = Logger.getLogger('MessageRouter').child({
+            networkName: config.networkName
+        });
+        
+        this.logger.info('Initializing MessageRouter', {
+            maxRetries: config.maxRetries,
+            messageTimeout: config.messageTimeout,
+            routingAlgorithm: config.performance?.routingAlgorithm
+        });
 
         // Initialize priority queues
         this.messageQueue.set('urgent', []);
@@ -99,7 +112,7 @@ export class MessageRouter extends EventEmitter {
             // Extraire l'URL depuis les métadonnées ou utiliser une convention
             const endpoint = agent.metadata.location ;
             if(!endpoint) {
-                console.warn(`⚠️ No endpoint for agent ${agent.agentId}`);
+                this.logger.warn(`⚠️ No endpoint for agent ${agent.agentId}`);
                 continue;
             }
             this.agentEndpoints.set(agent.agentId, endpoint);
@@ -1152,7 +1165,7 @@ export class MessageRouter extends EventEmitter {
             nextAttempt: breaker.nextAttempt 
         });
         
-        console.warn(`🔴 Circuit breaker OPENED for agent: ${agentId}`);
+        this.logger.warn(`🔴 Circuit breaker OPENED for agent: ${agentId}`);
     }
 
     private closeCircuit(agentId: string): void {
@@ -1166,7 +1179,7 @@ export class MessageRouter extends EventEmitter {
         
         this.emit('circuit:closed', { agentId });
         
-        console.log(`🟢 Circuit breaker CLOSED for agent: ${agentId}`);
+        this.logger.info(`🟢 Circuit breaker CLOSED for agent: ${agentId}`);
     }
 
     private transitionToHalfOpen(agentId: string): void {
@@ -1179,7 +1192,7 @@ export class MessageRouter extends EventEmitter {
         
         this.emit('circuit:half-open', { agentId });
         
-        console.log(`🟡 Circuit breaker HALF-OPEN for agent: ${agentId}`);
+        this.logger.info(`🟡 Circuit breaker HALF-OPEN for agent: ${agentId}`);
     }
 
     /**
@@ -1198,7 +1211,7 @@ export class MessageRouter extends EventEmitter {
                 client.close();
                 this.emit('client:closed', { agentId });
             } catch (error) {
-                console.error(`Error closing client for agent ${agentId}:`, error);
+                this.logger.error(`Error closing client for agent ${agentId}:`, error);
             }
         }
         this.clientPool.clear();

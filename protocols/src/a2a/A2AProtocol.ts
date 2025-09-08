@@ -10,6 +10,7 @@ import { EventEmitter } from 'eventemitter3';
 import axios ,{AxiosInstance} from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
+import { HybridDiscovery} from "./HybridDiscovery";
 
 
 import {
@@ -49,11 +50,12 @@ import {
     AgentCapability,
     AgentStatus,
     CapabilityQuery,
-    CapabilityMatch, A2AResponse
+    CapabilityMatch, A2AResponse, TaskState, TaskDefinition
 } from './types';
 import {SecurityManager}  from "./SecurityManager";
 import {A2AAgentRegistry} from "./A2AAgentRegistry";
 import {MessageRouter} from "./MessageRouter";
+
 
 
 
@@ -68,6 +70,22 @@ export interface A2AProtocolConfig {
         retries?: number;
         discoveryInterval?: number;
     };
+    discovery?: boolean;
+    registryUrl?: string;
+    enableP2P?: boolean;
+    port?: number;
+}
+
+interface SimpleTaskStatus {
+    id: string;
+    state: TaskState;
+    progress: number;
+    targetAgent: string;
+    capability: string;
+    parameters: Record<string, any>;
+    priority: number;
+    createdAt: Date;
+    message?: string;
 }
 export class A2AProtocol extends EventEmitter {
     private router: MessageRouter;
@@ -83,6 +101,8 @@ export class A2AProtocol extends EventEmitter {
     private registeredAgents: Map<string, AgentProfile> = new Map();
     private tasks: Map<string, Task> = new Map();
     private pushNotificationConfigs: Map<string, TaskPushNotificationConfig> = new Map();
+    private discovery?: HybridDiscovery;
+    // private taskStore = new Map<string, SimpleTaskStatus>();
 
     constructor(config: A2AProtocolConfig) {
         super();
@@ -119,11 +139,20 @@ export class A2AProtocol extends EventEmitter {
             }
 
         });
-        // this.router = new MessageRouter(this.registry, this.config)
+
+        if (config.discovery !== false) {
+            this.discovery = new HybridDiscovery({
+                registryUrl: config.registryUrl || process.env.A2A_REGISTRY_URL,
+                enableP2P: config.enableP2P !== false,
+                agentCard: this.agentCard,
+                port: config.port || 8080
+            });
+            this.setupDiscovery();
+        }
+
 
 
         this.setupRegistryEvents();
-        this.setupDiscovery();
         this.setupRouterEvents();
 
     }
@@ -140,6 +169,7 @@ export class A2AProtocol extends EventEmitter {
             this.emit('message:failed', { message, error });
         });
     }
+
 
     /**
      * Route message through router
@@ -325,42 +355,47 @@ export class A2AProtocol extends EventEmitter {
     }
 
     /**
-     * Get task details
+     * Create a new task
+     *
      */
-    async getTask(taskId: string, historyLength?: number): Promise<Task> {
-        const task = this.tasks.get(taskId);
-        const agentId = task ? await this.findAgentForTask(taskId) : null;
+    async createTask(taskDef: TaskDefinition): Promise<string> {
+        const taskId = uuidv4();
 
-        if (!agentId) {
-            throw new A2AError('Task not found', 'TASK_NOT_FOUND');
-        }
-
-        const targetAgent = await this.getAgent(agentId);
-
-        const request: GetTaskRequest = {
-            jsonrpc: '2.0',
-            id: uuidv4(),
-            method: 'tasks/get',
-            parameters: {
-                id: taskId,
-                historyLength: historyLength
-            }
+        // Créer une vraie Task avec TaskStatus
+        const task: Task = {
+            id: taskId,
+            contextId: uuidv4(), // ou taskDef.contextId si disponible
+            status: {
+                state: 'submitted',
+                timestamp: new Date().toISOString()
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            executedBy: taskDef.targetAgent,
+            metadata: {
+                definition: taskDef,
+                priority: taskDef.priority,
+                capability: taskDef.requiredCapability
+            },
+            kind: 'task'
         };
 
-        const response = await this.sendSecureJSONRPC(
-            targetAgent.metadata.location,
-            request
-        );
-
-        if ('error' in response && response.error) {
-            throw this.handleJSONRPCError(response.error);
-        }
-
-        const updatedTask = (response as GetTaskSuccessResponse).result;
-        this.tasks.set(taskId, updatedTask);
-
-        return updatedTask;
+        this.tasks.set(taskId, task);
+        this.emit('task:created', taskId);
+        return taskId;
     }
+
+
+
+    /**
+     * Get task details
+     */
+    async getTask(taskId: string): Promise<Task> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+        return task;
+    }
+
 
     /**
      * Cancel a task
@@ -685,43 +720,72 @@ export class A2AProtocol extends EventEmitter {
     /**
      * Setup periodic discovery
      */
-    private setupDiscovery(): void {
-        const interval = this.config.network?.discoveryInterval || 30000;
+    private async setupDiscovery(): Promise<void> {
+        if (!this.discovery) return;
 
-        // Initial discovery
-        this.discoverAgents();
+        await this.discovery.initialize();
 
-        // Periodic discovery
+        // Écouter les événements de découverte
+        this.discovery.on('agent:discovered', (profile) => {
+            this.registry.registerAgent(profile);
+
+            // Enregistrer l'endpoint pour le MessageRouter
+            if (profile.metadata?.location) {
+                this.router.registerAgentEndpoint(
+                    profile.agentId,
+                    profile.metadata.location
+                );
+            }
+        });
+
+        // Heartbeat périodique
         setInterval(() => {
-            this.discoverAgents();
-        }, interval);
+            this.discovery?.sendHeartbeat(this.agentCard.name);
+        }, 30000);
+
+        // S'enregistrer au démarrage
+        const profile = this.createAgentProfile();
+        await this.discovery.registerWithCentral(profile);
+    }
+
+    /**
+     * Create agent profile from agent card
+     */
+    private createAgentProfile(): AgentProfile {
+        return {
+            agentId: this.agentCard.name,
+            agentType: 'a2a-agent',
+            status: AgentStatus.ONLINE,
+            capabilities: this.agentCard.capabilities || [],
+            systemFeatures: this.agentCard.systemFeatures || {},
+            metadata: {
+                version: this.agentCard.version || '1.0.0',
+                location: this.agentCard.url,
+                load: 0,
+                uptime: 0,
+                capabilities_count: this.agentCard.capabilities?.length || 0,
+                registeredAt: new Date(),
+                lastUpdated: new Date()
+            },
+            lastSeen: new Date()
+        };
     }
 
     /**
      * Discover agents in the network
      */
-    async discoverAgents(): Promise<void> {
+    async discoverAgents(): Promise<AgentProfile[]> {
         try {
-            // Broadcast discovery message
-            const discoveryMessage: A2AMessage = {
-                id: uuidv4(),
-                role: 'agent',
-                from: this.agentCard.name,
-                to: 'broadcast',
-                type: A2AMessageType.AGENT_QUERY,
-                payload: {
-                    query: 'discover',
-                    agentCard: this.agentCard
-                },
-                timestamp: new Date(),
-                priority: 'low'
-            };
-
-            // In a real implementation, this would use multicast or a discovery service
-            this.emit('discovery:sent', discoveryMessage);
-
+            // If discovery is enabled, use it
+            if (this.discovery) {
+                return Array.from(this.discovery.getDiscoveredAgents().values());
+            }
+            
+            // Otherwise, return agents from registry
+            return this.registry.getAllAgents();
         } catch (error) {
             this.emit('discovery:error', error);
+            return [];
         }
     }
 
@@ -807,7 +871,7 @@ export class A2AProtocol extends EventEmitter {
      * Get agent by ID
      */
     private async getAgent(agentId: string): Promise<AgentProfile> {
-        const agent = this.registry.getAgent(agentId);
+        const agent = this.registry.getAgentSync(agentId);
         if (!agent) {
             throw new AgentNotFoundError(agentId);
         }
@@ -888,7 +952,18 @@ export class A2AProtocol extends EventEmitter {
      * Get registered agents
      */
     getRegisteredAgents(): AgentProfile[] {
-        return Array.from(this.registeredAgents.values());
+        return this.registry.getAllAgents();
+    }
+
+    /**
+     * Cleanup inactive agents
+     */
+
+    async cleanupInactiveAgents(thresholdMs: number): Promise<void> {
+        const removed = await this.registry.cleanupInactive(thresholdMs);
+        removed.forEach(agentId => {
+            this.emit('agent:cleaned', agentId);
+        });
     }
 
     /**
@@ -897,6 +972,53 @@ export class A2AProtocol extends EventEmitter {
     getActiveTasks(): Task[] {
         return Array.from(this.tasks.values());
     }
+
+    /**
+     * Update task progress
+     */
+
+    async updateTaskProgress(taskId: string, progress: number, message?: string): Promise<void> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+
+        // Mettre à jour le vrai TaskStatus
+        task.status = {
+            state: progress === 100 ? 'completed' :
+                progress > 0 ? 'in-progress' : 'submitted',
+            timestamp: new Date().toISOString()
+        };
+
+        // Si un message est fourni, créer un vrai Message
+        if (message) {
+            task.status.message = {
+                role: 'agent',
+                parts: [{ kind: 'text', text: message }],
+                messageId: uuidv4(),
+                kind: 'message'
+            };
+        }
+
+        // Mettre à jour les métadonnées
+        if (!task.metadata) task.metadata = {};
+        task.metadata.progress = progress;
+        task.updatedAt = new Date();
+
+        this.emit('task:progress', { taskId, progress, message });
+    }
+
+    /**
+     * Get task status
+     */
+    async getTaskStatus(taskId: string): Promise<TaskStatus> {
+        const task = this.tasks.get(taskId);
+        if (!task) throw new Error(`Task ${taskId} not found`);
+
+        // Retourner le vrai TaskStatus
+        return task.status;
+    }
+
+
+
 
     /**
      * Close all connections
@@ -913,6 +1035,12 @@ export class A2AProtocol extends EventEmitter {
         this.tasks.clear();
         this.pushNotificationConfigs.clear();
 
+        // Shutdown the registry
+        this.registry.shutdown();
+
         this.emit('shutdown');
+        
+        // Remove all listeners
+        this.removeAllListeners();
     }
 }

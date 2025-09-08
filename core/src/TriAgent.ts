@@ -59,7 +59,9 @@ export abstract class TriAgent extends EventEmitter {
                 load: 0,
                 uptime: Date.now(),
                 capabilities_count: this.config.capabilities.length,
-                ...this.config.metadata
+                ...this.config.metadata,
+                registeredAt: new Date(),
+                lastUpdated: new Date()
             },
             lastSeen: new Date()
         };

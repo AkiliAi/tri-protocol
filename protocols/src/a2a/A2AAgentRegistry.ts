@@ -1,3 +1,4 @@
+import { Logger } from '../../../logger';
 /**
  * Agent Registry - A2A Protocol Discovery System
  * Manages agent registration, discovery, and capability matching
@@ -8,7 +9,7 @@
 
 
 
-// packages/protocols/src/a2a/A2AAgentRegistry.ts
+// protocols/src/a2a/A2AAgentRegistry.ts
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -28,6 +29,7 @@ import {
 } from './types';
 
 export class A2AAgentRegistry extends EventEmitter {
+    private logger: Logger;
     private agents = new Map<string, AgentProfile>();
     private capabilities = new Map<string, Map<string, AgentCapability>>();
     private capabilityIndex = new Map<string, Set<string>>();
@@ -41,6 +43,8 @@ export class A2AAgentRegistry extends EventEmitter {
 
     constructor(configOrEventBus: A2AConfig | EventEmitter) {
         super();
+        
+        this.logger = Logger.getLogger('A2AAgentRegistry');
         
         // Handle both constructor signatures for backward compatibility
         if (configOrEventBus instanceof EventEmitter) {
@@ -136,7 +140,7 @@ export class A2AAgentRegistry extends EventEmitter {
             profile,
             timestamp: Date.now()
         });
-        console.log(`[A2A Registry] Agent registered: ${agentId} with ${profile.capabilities.length} capabilities`);
+        this.logger.info(`[A2A Registry] Agent registered: ${agentId} with ${profile.capabilities.length} capabilities`);
 
         return { success: true, agentId };
     }
@@ -199,7 +203,7 @@ export class A2AAgentRegistry extends EventEmitter {
         });
         this.emitEvent('network:topology:changed', this.getTopology());
 
-        console.log(`[A2A Registry] Agent unregistered: ${agentId}`);
+        this.logger.info(`[A2A Registry] Agent unregistered: ${agentId}`);
         return true;
     }
 
@@ -855,7 +859,7 @@ export class A2AAgentRegistry extends EventEmitter {
                 const offlineTime = now - agent.lastSeen.getTime();
                 if (offlineTime > timeout) {
                     this.unregisterAgent(agentId);
-                    console.log(`[A2A Registry] Removed offline agent: ${agentId}`);
+                    this.logger.info(`[A2A Registry] Removed offline agent: ${agentId}`);
                 }
             }
         }

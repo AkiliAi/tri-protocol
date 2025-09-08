@@ -1,4 +1,4 @@
-// packages/protocols/src/a2a/A2AClient.ts
+// protocols/src/a2a/A2AClient.ts
 /**
  * A2A Protocol Agent Client
  * Agent-to-Agent (A2A) communication client implementation.
@@ -7,6 +7,7 @@
 
 import axios, { AxiosInstance } from 'axios';
 import { EventEmitter } from 'eventemitter3';
+import { Logger } from '../../../logger';
 import {
     AgentCard,
     MessageSendParameters,
@@ -43,6 +44,7 @@ export interface A2AClientConfig {
 }
 
 export class A2AClient extends EventEmitter {
+    private logger: Logger;
     private agentBaseUrl: string;
     private agentCardPath: string;
     private agentCardPromise?: Promise<AgentCard>;
@@ -56,6 +58,17 @@ export class A2AClient extends EventEmitter {
         this.agentBaseUrl = agentBaseUrl.replace(/\/$/, ''); // Remove trailing slash
         this.agentCardPath = agentCardPath;
         this.config = config;
+        
+        // Initialize logger
+        this.logger = Logger.getLogger('A2AClient').child({
+            agentUrl: agentBaseUrl,
+            timeout: config.timeout || 30000
+        });
+        
+        this.logger.debug('Initializing A2A Client', {
+            agentCardPath,
+            retries: config.retries
+        });
 
         this.httpClient = axios.create({
             baseURL: this.agentBaseUrl,
@@ -85,10 +98,19 @@ export class A2AClient extends EventEmitter {
 
                 if (config.retryCount < (this.config.retries || 3)) {
                     config.retryCount++;
+                    this.logger.debug('Retrying request', {
+                        attempt: config.retryCount,
+                        maxRetries: this.config.retries || 3,
+                        url: config.url
+                    });
                     await new Promise(resolve => setTimeout(resolve, 1000 * config.retryCount));
                     return this.httpClient(config);
                 }
-
+                
+                this.logger.error('Request failed after retries', error, {
+                    url: config.url,
+                    attempts: config.retryCount
+                });
                 return Promise.reject(error);
             }
         );
@@ -409,7 +431,9 @@ export class A2AClient extends EventEmitter {
 
             return null;
         } catch (error) {
-            console.error('Failed to parse SSE data:', data, error);
+            this.logger.error('Failed to parse SSE data', error as Error, {
+                data: data.substring(0, 200) // Log first 200 chars only
+            });
             return null;
         }
     }

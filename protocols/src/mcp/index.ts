@@ -4,6 +4,8 @@
 
 export { MCPClientManager } from './MCPClientManager';
 export { MCPAdapter } from './MCPAdapter';
+export { MCPCircuitBreaker } from './MCPCircuitBreaker';
+export type { CircuitBreakerConfig, CircuitBreakerState, CircuitBreakerEvents } from './MCPCircuitBreaker';
 
 export type {
     // Server connections

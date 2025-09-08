@@ -1,3 +1,4 @@
+import { Logger } from '../../../logger';
 // protocols/src/a2a/HybridDiscovery.ts
 import { EventEmitter } from 'eventemitter3';
 import axios from 'axios';
@@ -13,6 +14,7 @@ export interface HybridDiscoveryConfig {
 }
 
 export class HybridDiscovery extends EventEmitter {
+    private logger: Logger;
     private config: HybridDiscoveryConfig;
     private mdns?: any;
     private browser?: any;
@@ -23,6 +25,11 @@ export class HybridDiscovery extends EventEmitter {
     constructor(config: HybridDiscoveryConfig) {
         super();
         this.config = config;
+        this.logger = Logger.getLogger('HybridDiscovery').child({
+            registryUrl: config.registryUrl,
+            enableP2P: config.enableP2P,
+            agentName: config.agentCard.name
+        });
     }
 
     async initialize(): Promise<void> {
@@ -46,13 +53,13 @@ export class HybridDiscovery extends EventEmitter {
 
         if (centralSuccess && p2pSuccess) {
             this.discoveryMode = 'hybrid';
-            console.log('✅ Hybrid discovery initialized (Central + P2P)');
+            this.logger.info('✅ Hybrid discovery initialized (Central + P2P)');
         } else if (centralSuccess) {
             this.discoveryMode = 'central';
-            console.log('✅ Central registry discovery initialized');
+            this.logger.info('✅ Central registry discovery initialized');
         } else if (p2pSuccess) {
             this.discoveryMode = 'p2p';
-            console.log('✅ P2P discovery initialized');
+            this.logger.info('✅ P2P discovery initialized');
         } else {
             throw new Error('Failed to initialize any discovery mechanism');
         }
@@ -71,11 +78,11 @@ export class HybridDiscovery extends EventEmitter {
             );
 
             if (response.status === 200) {
-                console.log(`✅ Connected to central registry: ${this.config.registryUrl}`);
+                this.logger.info(`✅ Connected to central registry: ${this.config.registryUrl}`);
                 this.emit('registry:connected', this.config.registryUrl);
             }
         } catch (error) {
-            console.error('Failed to connect to central registry:', error);
+            this.logger.error('Failed to connect to central registry:', error);
             throw error;
         }
     }
@@ -108,7 +115,7 @@ export class HybridDiscovery extends EventEmitter {
                     if (profile && profile.agentId !== this.config.agentCard.name) {
                         this.discoveredAgents.set(profile.agentId, profile);
                         this.emit('agent:discovered', profile);
-                        console.log(`🔍 Discovered P2P agent: ${profile.agentId}`);
+                        this.logger.info(`🔍 Discovered P2P agent: ${profile.agentId}`);
                     }
                 });
 
@@ -117,11 +124,11 @@ export class HybridDiscovery extends EventEmitter {
                     if (agentId) {
                         this.discoveredAgents.delete(agentId);
                         this.emit('agent:lost', agentId);
-                        console.log(`👋 Lost P2P agent: ${agentId}`);
+                        this.logger.info(`👋 Lost P2P agent: ${agentId}`);
                     }
                 });
 
-                console.log('✅ P2P discovery initialized');
+                this.logger.info('✅ P2P discovery initialized');
                 resolve();
 
             } catch (error) {
@@ -165,7 +172,7 @@ export class HybridDiscovery extends EventEmitter {
                 networkAddress: `${service.host}:${service.port}`
             };
         } catch (error) {
-            console.error('Failed to parse service:', error);
+            this.logger.error('Failed to parse service:', error);
             return null;
         }
     }
@@ -194,7 +201,7 @@ export class HybridDiscovery extends EventEmitter {
             );
             return response.data.agents || [];
         } catch (error) {
-            console.error('Registry discovery failed:', error);
+            this.logger.error('Registry discovery failed:', error);
             return [];
         }
     }
@@ -261,7 +268,7 @@ export class HybridDiscovery extends EventEmitter {
                         { status: AgentStatus.ONLINE }
                     );
                 } catch (error) {
-                    console.error('Heartbeat failed:', error);
+                    this.logger.error('Heartbeat failed:', error);
                 }
             }
         }

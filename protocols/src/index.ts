@@ -11,5 +11,9 @@ export { A2AAgentServer } from './a2a/A2AAgentServer';
 export { A2AClient } from './a2a/A2AClient';
 export { AgentExecutor } from './a2a/AgentExecutor';
 
+// MCP Protocol exports
+export {MCPAdapter} from './mcp/MCPAdapter';
+export {MCPClientManager} from './mcp/MCPClientManager';
+
 // Export all types
 export * from './a2a/types';

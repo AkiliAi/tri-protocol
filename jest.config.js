@@ -1,7 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests', '<rootDir>/core', '<rootDir>/protocols'],
+  roots: ['<rootDir>/tests', '<rootDir>/core', '<rootDir>/protocols', '<rootDir>/logger'],
   testMatch: [
     '**/__tests__/**/*.+(ts|tsx|js)',
     '**/?(*.)+(spec|test).+(ts|tsx|js)'
@@ -18,14 +18,17 @@ module.exports = {
         strict: true,
         paths: {
           '@protocols/*': ['./protocols/src/*'],
-          '@core/*': ['./core/src/*']
+          '@core/*': ['./core/src/*'],
+          '@logger/*': ['./logger/src/*']
         }
       }
     }]
   },
   moduleNameMapper: {
     '^@protocols/(.*)$': '<rootDir>/protocols/src/$1',
-    '^@core/(.*)$': '<rootDir>/core/src/$1'
+    '^@core/(.*)$': '<rootDir>/core/src/$1',
+    '^@logger/(.*)$': '<rootDir>/logger/src/$1'
+
   },
   collectCoverage: true,
   collectCoverageFrom: [
@@ -46,7 +49,7 @@ module.exports = {
       statements: 80
     }
   },
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts', '<rootDir>/tests/setup-mcp-mocks.ts'],
   testTimeout: 10000,
   verbose: true,
   maxWorkers: '50%',

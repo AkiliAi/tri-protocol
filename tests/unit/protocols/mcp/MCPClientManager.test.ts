@@ -2,14 +2,14 @@
  * Unit Tests for MCPClientManager
  */
 
-import { MCPClientManager } from '@protocols/mcp/MCPClientManager';
-import { MockMCPServer, MockMCPServerFactory } from '@protocols/utils/mock-mcp-server';
+import { MCPClientManager } from '../../../../protocols/src/mcp/MCPClientManager';
+import { MockMCPServer, MockMCPServerFactory } from '../../../../protocols/src/utils/mock-mcp-server';
 import type {
   MCPServerConnection,
   MCPToolDescription,
   ToolExecutionRequest,
   ResourceReadRequest
-} from '@protocols/mcp/types';
+} from '../../../../protocols/src/mcp/types';
 
 describe('MCPClientManager', () => {
   let manager: MCPClientManager;
@@ -305,21 +305,21 @@ describe('MCPClientManager', () => {
       );
     });
 
-    // it('should update tool statistics', async () => {
-    //   const request: ToolExecutionRequest = {
-    //     toolName: 'read_file',
-    //     arguments: { path: '/test/file.txt' }
-    //   };
-    //
-    //   await manager.executeTool(request);
-    //
-    //   const tools = manager.getServerTools('test-server');
-    //   const tool = tools.find(t => t.name === 'read_file');
-    //
-    //   expect(tool?.callCount).toBe(1);
-    //   expect(tool?.avgExecutionTime).toBeGreaterThan(0);
-    //   expect(tool?.lastExecutionStatus).toBe('success');
-    // });
+    it('should update tool statistics', async () => {
+      const request: ToolExecutionRequest = {
+        toolName: 'read_file',
+        arguments: { path: '/test/file.txt' }
+      };
+
+      await manager.executeTool(request);
+
+      const tools = manager.getServerTools('test-server');
+      const tool = tools.find(t => t.name === 'read_file');
+
+      expect(tool?.callCount).toBe(1);
+      expect(tool?.avgExecutionTime).toBeGreaterThan(0);
+      expect(tool?.lastExecutionStatus).toBe('success');
+    });
   });
 
   describe('Resource Management', () => {
@@ -560,31 +560,31 @@ describe('MCPClientManager', () => {
       expect(postExecute).toHaveBeenCalled();
     });
 
-    // it('should apply error middleware', async () => {
-    //   const onError = jest.fn();
-    //
-    //   manager.setConfig({
-    //     toolMiddleware: [{
-    //       name: 'test-middleware',
-    //       onError
-    //     }]
-    //   });
-    //
-    //   await manager.connect({
-    //     name: 'test-server',
-    //     type: 'stdio',
-    //     command: 'node',
-    //     args: ['mock-server.js']
-    //   });
-    //
-    //   // Try to execute non-existent tool
-    //   await expect(manager.executeTool({
-    //     toolName: 'non_existent',
-    //     arguments: {}
-    //   })).rejects.toThrow();
-    //
-    //   // Error middleware should have been called
-    //   expect(onError).toHaveBeenCalled();
-    // });
+    it('should apply error middleware', async () => {
+      const onError = jest.fn();
+
+      manager.setConfig({
+        toolMiddleware: [{
+          name: 'test-middleware',
+          onError
+        }]
+      });
+
+      await manager.connect({
+        name: 'test-server',
+        type: 'stdio',
+        command: 'node',
+        args: ['mock-server.js']
+      });
+
+      // Try to execute non-existent tool
+      await expect(manager.executeTool({
+        toolName: 'non_existent',
+        arguments: {}
+      })).rejects.toThrow();
+
+      // Error middleware should have been called
+      expect(onError).toHaveBeenCalled();
+    });
   });
 });

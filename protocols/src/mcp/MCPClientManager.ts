@@ -8,6 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { WebSocketClientTransport } from '@modelcontextprotocol/sdk/client/websocket.js';
 import { Logger } from '../../../logger';
+import { MCPCircuitBreaker, CircuitBreakerConfig } from './MCPCircuitBreaker';
 import type {
   MCPServerConnection,
   MCPClientState,
@@ -30,11 +31,14 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
   private toolCache: Map<string, { tools: MCPToolDescription[], timestamp: number }> = new Map();
   private executionQueue: Map<string, Promise<any>> = new Map();
   private activeExecutions = 0;
+  private circuitBreaker: MCPCircuitBreaker;
 
   constructor(config: Partial<MCPConfig> = {}) {
     super();
     this.logger = Logger.getLogger('MCPClientManager');
     this.config = this.mergeConfig(config);
+    this.circuitBreaker = new MCPCircuitBreaker();
+    this.setupCircuitBreakerListeners();
     this.logger.info('MCPClientManager initialized', { config: this.config });
   }
 
@@ -49,6 +53,15 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       maxConcurrentExecutions: 10,
       verboseLogging: false,
       toolMiddleware: [],
+      circuitBreaker: {
+        enabled: true,
+        failureThreshold: 5,
+        successThreshold: 2,
+        timeout: 60000,
+        monitoringPeriod: 120000,
+        resetTimeout: 300000,
+        ...partial.circuitBreaker
+      },
       ...partial
     };
   }
@@ -127,6 +140,17 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       
       state.status = 'connected';
       state.stats.connectedAt = new Date();
+
+      // Initialize circuit breaker for this server if enabled
+      if (this.config.circuitBreaker?.enabled) {
+        this.circuitBreaker.initializeCircuit(connection.name, {
+          failureThreshold: this.config.circuitBreaker.failureThreshold,
+          successThreshold: this.config.circuitBreaker.successThreshold,
+          timeout: this.config.circuitBreaker.timeout,
+          monitoringPeriod: this.config.circuitBreaker.monitoringPeriod,
+          resetTimeout: this.config.circuitBreaker.resetTimeout
+        });
+      }
 
       this.logger.info(`Connected to MCP server: ${connection.name}`, { 
         capabilities: state.capabilities 
@@ -240,6 +264,11 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       state.status = 'disconnected';
       state.stats.disconnectedAt = new Date();
       this.servers.delete(serverName);
+
+      // Remove circuit breaker for this server
+      if (this.config.circuitBreaker?.enabled) {
+        this.circuitBreaker.removeCircuit(serverName);
+      }
 
       this.logger.info(`Disconnected from MCP server: ${serverName}`);
       this.emit('server:disconnected', serverName, 'manual_disconnect');
@@ -386,6 +415,7 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
    */
   async executeTool(request: ToolExecutionRequest): Promise<ToolExecutionResponse> {
     const startTime = Date.now();
+    let targetServer: string | undefined;
     
     // Check concurrent execution limit
     if (this.activeExecutions >= this.config.maxConcurrentExecutions!) {
@@ -396,7 +426,7 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
 
     try {
       // Find the server that has this tool
-      let targetServer: string | undefined = request.serverName;
+      targetServer = request.serverName;
       let tool: MCPToolDescription | undefined;
 
       if (!targetServer) {
@@ -417,6 +447,14 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
 
       if (!targetServer || !tool) {
         throw new Error(`Tool ${request.toolName} not found`);
+      }
+
+      // Check circuit breaker if enabled
+      if (this.config.circuitBreaker?.enabled) {
+        if (!this.circuitBreaker.shouldAllowRequest(targetServer)) {
+          const circuitState = this.circuitBreaker.getCircuitState(targetServer);
+          throw new Error(`Circuit breaker is ${circuitState?.status} for server ${targetServer}`);
+        }
       }
 
       const state = this.servers.get(targetServer)!;
@@ -450,6 +488,11 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       tool.lastExecutionStatus = 'success';
       state.stats.totalToolCalls++;
 
+      // Record success in circuit breaker
+      if (this.config.circuitBreaker?.enabled) {
+        this.circuitBreaker.recordSuccess(targetServer);
+      }
+
       const response: ToolExecutionResponse = {
         success: true,
         result: result as any,
@@ -479,14 +522,20 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       // Update error statistics
-      if (request.serverName) {
-        const state = this.servers.get(request.serverName);
+      const serverName = request.serverName || targetServer;
+      if (serverName) {
+        const state = this.servers.get(serverName);
         if (state) {
           state.stats.errors++;
           const tool = state.tools.get(request.toolName);
           if (tool) {
             tool.lastExecutionStatus = 'failure';
           }
+        }
+
+        // Record failure in circuit breaker
+        if (this.config.circuitBreaker?.enabled && error instanceof Error) {
+          this.circuitBreaker.recordFailure(serverName, error);
         }
       }
 
@@ -716,6 +765,48 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
    */
   getConfig(): MCPConfig {
     return { ...this.config };
+  }
+
+  /**
+   * Setup circuit breaker event listeners
+   */
+  private setupCircuitBreakerListeners(): void {
+    this.circuitBreaker.on('circuit:open', (serverName, reason) => {
+      this.logger.warn(`Circuit opened for server ${serverName}: ${reason}`);
+      this.emit('server:circuit:open', serverName, reason);
+    });
+
+    this.circuitBreaker.on('circuit:close', (serverName) => {
+      this.logger.info(`Circuit closed for server ${serverName}`);
+      this.emit('server:circuit:close', serverName);
+    });
+
+    this.circuitBreaker.on('circuit:half-open', (serverName) => {
+      this.logger.info(`Circuit half-open for server ${serverName}`);
+      this.emit('server:circuit:half-open', serverName);
+    });
+  }
+
+  /**
+   * Get circuit breaker state for a server
+   */
+  getCircuitState(serverName: string): any {
+    return this.circuitBreaker.getCircuitState(serverName);
+  }
+
+  /**
+   * Get circuit breaker statistics
+   */
+  getCircuitStatistics(serverName: string): any {
+    return this.circuitBreaker.getStatistics(serverName);
+  }
+
+  /**
+   * Reset circuit breaker for a server
+   */
+  resetCircuitBreaker(serverName: string): void {
+    this.circuitBreaker.resetCircuit(serverName);
+    this.logger.info(`Circuit breaker reset for server ${serverName}`);
   }
 
   /**

@@ -2,19 +2,19 @@
  * Unit Tests for MCPAdapter
  */
 
-import { MCPAdapter } from '@protocols/mcp/MCPAdapter';
-import { A2AMessageType } from '@protocols/a2a/types';
+import { MCPAdapter } from '../../../../protocols/src/mcp/MCPAdapter';
+import { A2AMessageType } from '../../../../protocols/src/a2a/types';
 import type {
   A2AMessage,
   Message
-} from '@protocols/a2a/types';
+} from '../../../../protocols/src/a2a/types';
 import type {
   MCPProtocolMessage,
   ToolExecutionRequest,
   ToolExecutionResponse,
   ResourceReadRequest,
   ResourceReadResponse
-} from '@protocols/mcp/types';
+} from '../../../../protocols/src/mcp/types';
 
 describe('MCPAdapter', () => {
   let adapter: MCPAdapter;

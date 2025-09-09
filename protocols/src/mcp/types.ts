@@ -122,6 +122,16 @@ export interface MCPConfig {
   
   /** Custom tool execution middleware */
   toolMiddleware?: ToolMiddleware[];
+  
+  /** Circuit breaker configuration */
+  circuitBreaker?: {
+    enabled?: boolean;
+    failureThreshold?: number;
+    successThreshold?: number;
+    timeout?: number;
+    monitoringPeriod?: number;
+    resetTimeout?: number;
+  };
 }
 
 /**
@@ -272,6 +282,15 @@ export interface MCPManagerEvents {
   
   /** Emitted when a server is reconnecting */
   'server:reconnecting': (serverName: string, attempt: number) => void;
+  
+  /** Emitted when circuit breaker opens */
+  'server:circuit:open': (serverName: string, reason: string) => void;
+  
+  /** Emitted when circuit breaker closes */
+  'server:circuit:close': (serverName: string) => void;
+  
+  /** Emitted when circuit breaker enters half-open state */
+  'server:circuit:half-open': (serverName: string) => void;
   
   /** Emitted when tools are discovered */
   'tools:discovered': (serverName: string, tools: MCPToolDescription[]) => void;

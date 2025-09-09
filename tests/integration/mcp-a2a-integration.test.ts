@@ -3,21 +3,21 @@
  * Tests the complete flow from A2A agents using MCP tools
  */
 
-import { TriAgent, TriAgentConfig } from '@core/TriAgent';
-import { TriProtocol } from '@core/TriProtocol';
-import { TriRegistry } from '@core/TriRegistry';
+import { TriAgent, TriAgentConfig } from '../../core/src/TriAgent';
+import { TriProtocol } from '../../core/src/TriProtocol';
+import { TriRegistry } from '../../core/src/TriRegistry';
 import { Logger } from '../../logger';
-import { MockMCPServer, MockMCPServerFactory } from '@protocols/utils/mock-mcp-server';
+import { MockMCPServer, MockMCPServerFactory } from '../../protocols/src/utils/mock-mcp-server';
 import type {
   Message,
   Task,
   AgentCapability,
   A2AMessage
-} from '@protocols/a2a/types';
+} from '../../protocols/src/a2a/types';
 import type {
   MCPServerConnection,
   ToolExecutionResponse
-} from '@protocols/mcp/types';
+} from '../../protocols/src/mcp/types';
 
 // Test Agent with MCP capabilities
 class TestMCPAgent extends TriAgent {

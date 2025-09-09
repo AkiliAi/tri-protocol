@@ -44,6 +44,7 @@ export class LangGraphAdapter extends EventEmitter {
   private a2aAdapter?: any; // Reference to A2A for agent communication
   private mcpAdapter?: any; // Reference to MCP for tool access
   private config: LangGraphConfig;
+  private currentExecution?: WorkflowExecution;
   
   constructor(config?: LangGraphConfig) {
     super();
@@ -119,10 +120,14 @@ export class LangGraphAdapter extends EventEmitter {
       }
     }
     
-    // Compile workflow
-    const compiled = workflow.compile({
-      checkpointer: this.config.checkpointer || this.createCheckpointer()
-    });
+    // Compile workflow - only add checkpointer if explicitly configured
+    const compileConfig: any = {};
+    if (definition.config?.checkpointInterval) {
+      // Only use checkpointer if explicitly needed for this workflow
+      compileConfig.checkpointer = this.createCheckpointer();
+    }
+    
+    const compiled = workflow.compile(compileConfig);
     
     // Store workflow
     const workflowId = definition.id || this.generateId();
@@ -162,6 +167,7 @@ export class LangGraphAdapter extends EventEmitter {
     };
     
     this.executions.set(executionId, execution);
+    this.currentExecution = execution;
     this.emit('workflow:started', { executionId, workflowId });
     
     try {
@@ -319,10 +325,14 @@ export class LangGraphAdapter extends EventEmitter {
     
     const message = node.metadata?.message || state.messages?.slice(-1)[0];
     
+    // Generate correlation ID for tracking
+    const correlationId = `workflow-${this.currentExecution?.workflowId}-node-${node.id}-${Date.now()}`;
+    
     // Send message to agent via A2A
     const response = await this.a2aAdapter.sendMessage({
       to: agentId,
       type: 'TASK_REQUEST',
+      correlationId,
       payload: {
         task: node.metadata?.task,
         context: state.context,
@@ -330,17 +340,37 @@ export class LangGraphAdapter extends EventEmitter {
       }
     });
     
-    // Update state with response
+    // Update state with response and correlation tracking
     const responseMessage = new AIMessage({
       content: response.data?.content || JSON.stringify(response.data),
       name: agentId
     });
     
+    // Track pending A2A messages if response is async
+    const pendingA2AMessages = state.context?.pendingA2AMessages || new Map();
+    const a2aResponses = state.context?.a2aResponses || new Map();
+    
+    if (response.status === 'pending') {
+      pendingA2AMessages.set(correlationId, node.id);
+    } else {
+      a2aResponses.set(node.id, response.data);
+    }
+    
     return {
       messages: [...(state.messages || []), responseMessage],
       context: {
         ...state.context,
-        [`${node.id}_result`]: response.data
+        [`${node.id}_result`]: response.data,
+        [`${node.id}_correlationId`]: correlationId,
+        pendingA2AMessages,
+        a2aResponses,
+        lastA2AInteraction: {
+          nodeId: node.id,
+          agentId,
+          correlationId,
+          timestamp: new Date(),
+          status: response.status || 'completed'
+        }
       }
     };
   }
@@ -362,24 +392,56 @@ export class LangGraphAdapter extends EventEmitter {
     const toolArgs = node.metadata?.args || 
                      this.extractToolArgs(state, node);
     
-    // Execute tool via MCP
-    const result = await this.mcpAdapter.executeTool({
-      toolName,
-      arguments: toolArgs
-    });
+    // Check for circuit breaker handling options
+    const cbHandling = node.metadata?.circuitBreakerHandling;
     
-    // Update state with tool result
-    return {
-      context: {
-        ...state.context,
-        [`${node.id}_result`]: result,
-        lastToolExecution: {
-          tool: toolName,
-          result,
-          timestamp: new Date()
+    try {
+      // Execute tool via MCP
+      const result = await this.mcpAdapter.executeTool({
+        toolName,
+        arguments: toolArgs
+      });
+      
+      // Update state with tool result
+      return {
+        context: {
+          ...state.context,
+          [`${node.id}_result`]: result,
+          lastToolExecution: {
+            tool: toolName,
+            result,
+            timestamp: new Date(),
+            status: 'success'
+          }
+        }
+      };
+    } catch (error: any) {
+      // Handle Circuit Breaker OPEN state
+      if (error.message?.includes('Circuit breaker is OPEN')) {
+        this.logger.warn(`Circuit breaker OPEN for tool ${toolName}`, { nodeId: node.id });
+        
+        if (cbHandling?.skipOnOpen) {
+          // Skip this node and continue with fallback value
+          return {
+            context: {
+              ...state.context,
+              [`${node.id}_result`]: cbHandling.fallbackValue ?? null,
+              [`${node.id}_skipped`]: true,
+              lastToolExecution: {
+                tool: toolName,
+                result: cbHandling.fallbackValue ?? null,
+                timestamp: new Date(),
+                status: 'skipped',
+                reason: 'Circuit breaker OPEN'
+              }
+            }
+          };
         }
       }
-    };
+      
+      // Re-throw for normal error handling/retry
+      throw error;
+    }
   }
   
   // LLM NODE EXECUTION
@@ -474,31 +536,111 @@ export class LangGraphAdapter extends EventEmitter {
   
   // CHECKPOINTING
   private createCheckpointer() {
-    return {
-      get: async (config: any) => {
-        const executionId = config.configurable?.thread_id;
-        const execution = this.executions.get(executionId);
-        return execution?.checkpoints.slice(-1)[0]?.state;
-      },
+    // Use MemorySaver from LangGraph for proper checkpointing
+    try {
+      const { MemorySaver } = require('@langchain/langgraph');
+      const checkpointer = new MemorySaver();
       
-      put: async (config: any, checkpoint: any) => {
-        const executionId = config.configurable?.thread_id;
-        const execution = this.executions.get(executionId);
-        if (execution) {
-          execution.checkpoints.push({
-            id: this.generateId(),
-            state: checkpoint,
-            timestamp: new Date()
-          });
+      // Wrap to store checkpoints in our execution tracking
+      const originalPut = checkpointer.put.bind(checkpointer);
+      const self = this;
+      
+      checkpointer.put = async function(config: any, checkpoint: any, metadata?: any) {
+        const result = await originalPut(config, checkpoint, metadata);
+        
+        // Store in our execution tracking
+        const threadId = config?.configurable?.thread_id;
+        if (threadId) {
+          const execution = self.executions.get(threadId);
+          if (execution) {
+            execution.checkpoints.push({
+              id: self.generateId(),
+              state: checkpoint,
+              timestamp: new Date()
+            });
+          }
         }
-      },
+        
+        return result;
+      };
       
-      list: async (config: any) => {
-        const executionId = config.configurable?.thread_id;
-        const execution = this.executions.get(executionId);
-        return execution?.checkpoints || [];
-      }
-    };
+      return checkpointer;
+    } catch (error) {
+      // Fallback to manual implementation if MemorySaver not available
+      this.logger.warn('MemorySaver not available, using fallback checkpointer');
+      
+      const checkpoints = new Map<string, any>();
+      const self = this;
+      
+      return {
+        getTuple: async function(config: any) {
+          const threadId = config?.configurable?.thread_id;
+          if (!threadId) return undefined;
+          
+          const checkpoint = checkpoints.get(threadId);
+          if (!checkpoint) return undefined;
+          
+          return {
+            config,
+            checkpoint,
+            metadata: checkpoint?.metadata || {},
+            parentConfig: undefined
+          };
+        }.bind(this),
+        
+        list: async function(config: any, options?: any) {
+          const threadId = config?.configurable?.thread_id;
+          const checkpoint = checkpoints.get(threadId);
+          
+          if (!checkpoint) return [];
+          
+          return [{
+            config,
+            checkpoint,
+            metadata: checkpoint?.metadata || {},
+            parentConfig: undefined
+          }];
+        }.bind(this),
+        
+        put: async function(config: any, checkpoint: any, metadata?: any) {
+          const threadId = config?.configurable?.thread_id;
+          if (!threadId) return config;
+          
+          checkpoints.set(threadId, {
+            ...checkpoint,
+            metadata: metadata || {}
+          });
+          
+          // Store in execution
+          const executionId = threadId;
+          const execution = self.executions.get(executionId);
+          if (execution) {
+            execution.checkpoints.push({
+              id: self.generateId(),
+              state: checkpoint,
+              timestamp: new Date()
+            });
+          }
+          
+          return {
+            configurable: {
+              ...config.configurable,
+              checkpoint_id: checkpoint?.id || self.generateId()
+            }
+          };
+        }.bind(this),
+        
+        putWrites: async function(config: any, writes: any[], taskId: string) {
+          const threadId = config?.configurable?.thread_id;
+          if (!threadId) return;
+          
+          const checkpoint = checkpoints.get(threadId) || {};
+          checkpoint.writes = writes;
+          checkpoint.taskId = taskId;
+          checkpoints.set(threadId, checkpoint);
+        }.bind(this)
+      };
+    }
   }
   
   // HUMAN IN THE LOOP
@@ -568,19 +710,18 @@ export class LangGraphAdapter extends EventEmitter {
   
   // CONDITIONAL ROUTING
   private addConditionalRouting(workflow: StateGraph<WorkflowState>, route: ConditionalRoute): void {
+    // Build route map with all possible targets
     const routeMap: Record<string, string> = {};
     
-    // Build route map
+    // Add all condition targets to route map
     for (const condition of route.conditions) {
-      // Use index as key for condition
-      const key = `condition_${route.conditions.indexOf(condition)}`;
-      routeMap[key] = condition.target;
+      routeMap[condition.target] = condition.target;
     }
     
     // Add default route
-    routeMap['default'] = route.default;
+    routeMap[route.default] = route.default;
     
-    // Create routing function
+    // Create routing function that returns the target node id
     const routingFunction = (state: WorkflowState): string => {
       for (const condition of route.conditions) {
         if (condition.condition(state)) {

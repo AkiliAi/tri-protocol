@@ -1,5 +1,6 @@
 import { A2ANode, MCPNode } from '../../../../protocols/src/langgraph/nodes';
 import { WorkflowState } from '../../../../protocols/src/langgraph/types';
+import { HumanMessage } from '@langchain/core/messages';
 
 describe('Workflow Nodes', () => {
   describe('A2ANode', () => {
@@ -22,7 +23,7 @@ describe('Workflow Nodes', () => {
       it('should extract message from state', async () => {
         const node = A2ANode.createSendMessageNode('agent-123');
         const state: WorkflowState = {
-          messages: [{ content: 'Test message' }],
+          messages: [new HumanMessage('Test message')],
           context: {}
         };
 
@@ -108,9 +109,9 @@ describe('Workflow Nodes', () => {
 
         const state: WorkflowState = {
           context: {
-            agent_agent_1_response: { result: 'A' },
-            agent_agent_2_response: { result: 'B' },
-            agent_agent_3_response: { result: 'A' }
+            'agent_agent-1_response': { result: 'A' },
+            'agent_agent-2_response': { result: 'B' },
+            'agent_agent-3_response': { result: 'A' }
           }
         };
 

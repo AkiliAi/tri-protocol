@@ -11,6 +11,8 @@ export class MCPNode {
     timeout?: number;
     retryOnFailure?: boolean;
     validateOutput?: (output: any) => boolean;
+    fallbackValue?: any;
+    skipOnCircuitOpen?: boolean;
   }): WorkflowNode {
     return {
       id: `mcp-${tool.replace(/[^a-zA-Z0-9]/g, '-')}`,
@@ -26,7 +28,12 @@ export class MCPNode {
             toolExecution: {
               tool,
               args: toolArgs,
-              timestamp: new Date()
+              timestamp: new Date(),
+              // Circuit breaker metadata
+              circuitBreakerHandling: {
+                skipOnOpen: options?.skipOnCircuitOpen ?? false,
+                fallbackValue: options?.fallbackValue
+              }
             }
           }
         };
@@ -40,7 +47,11 @@ export class MCPNode {
       metadata: { 
         tool, 
         args,
-        validateOutput: options?.validateOutput
+        validateOutput: options?.validateOutput,
+        circuitBreakerHandling: {
+          skipOnOpen: options?.skipOnCircuitOpen,
+          fallbackValue: options?.fallbackValue
+        }
       }
     };
   }

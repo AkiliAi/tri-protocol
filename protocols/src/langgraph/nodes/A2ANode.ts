@@ -363,34 +363,36 @@ export class A2ANode {
       type: 'agent',
       name: 'Load balance across agents',
       function: async (state: WorkflowState) => {
-        const lastUsedIndex = state.context?.lastUsedAgentIndex || -1;
+        const lastUsedIndex = state.context?.lastUsedAgentIndex ?? -1;
         let selectedAgent: string;
+        let selectedIndex: number;
         
         switch (options.strategy || 'round-robin') {
           case 'round-robin':
-            const nextIndex = (lastUsedIndex + 1) % options.agentPool.length;
-            selectedAgent = options.agentPool[nextIndex];
+            selectedIndex = (lastUsedIndex + 1) % options.agentPool.length;
+            selectedAgent = options.agentPool[selectedIndex];
             break;
           case 'random':
-            selectedAgent = options.agentPool[
-              Math.floor(Math.random() * options.agentPool.length)
-            ];
+            selectedIndex = Math.floor(Math.random() * options.agentPool.length);
+            selectedAgent = options.agentPool[selectedIndex];
             break;
           case 'weighted':
             // Simple weighted selection (could be enhanced)
             selectedAgent = options.agentPool[0];
+            selectedIndex = 0;
             break;
           case 'least-loaded':
           default:
             // Would need load information from adapter
             selectedAgent = options.agentPool[0];
+            selectedIndex = 0;
         }
         
         return {
           context: {
             ...state.context,
             selectedAgent,
-            lastUsedAgentIndex: options.agentPool.indexOf(selectedAgent),
+            lastUsedAgentIndex: selectedIndex,
             loadBalancing: {
               strategy: options.strategy || 'round-robin',
               agentPool: options.agentPool,

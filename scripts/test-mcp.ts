@@ -10,6 +10,7 @@
  *   npm run test:mcp -- --server filesystem  # Test specific server
  */
 
+import * as path from 'path';
 import { TriAgent, TriAgentConfig } from '../core/src/TriAgent';
 import { TriProtocol } from '../core/src/TriProtocol';
 import { TriRegistry } from '../core/src/TriRegistry';
@@ -49,10 +50,15 @@ class MCPTestAgent extends TriAgent {
       description: 'Agent for testing MCP functionality',
       capabilities: [
         {
+          id: 'test_mcp_001',
           name: 'test_mcp',
           description: 'Test MCP tools',
-          inputSchema: { type: 'object' },
-          outputSchema: { type: 'object' }
+          category: 'action' as any,
+          inputs: [],
+          outputs: [],
+          cost: 10,
+          reliability: 0.95,
+          version: '1.0.0'
         }
       ],
       enableMCP: true,
@@ -148,19 +154,20 @@ class MCPTestAgent extends TriAgent {
   private async connectToMockServers(type: string): Promise<void> {
     logger.info(`🔌 Connecting to mock ${type} MCP server...`);
 
-    // For mock servers, we'll simulate the connection
+    // For mock servers, we'll use the compiled mock server
     const connection: MCPServerConnection = {
       name: `mock-${type}`,
       type: 'stdio',
       command: 'node',
-      args: ['mock-server.js']
+      args: [path.join(__dirname, '../protocols/dist/utils/mock-mcp-server.js')]
     };
 
     try {
       await this.connectMCPServer(connection);
       logger.info(`✅ Connected to mock ${type} server`);
     } catch (error) {
-      logger.warn(`⚠️ Mock server connection simulated (this is normal for testing)`);
+      logger.warn(`⚠️ Mock server not available, skipping connection for test`);
+      // For testing purposes, we can continue without a real connection
     }
   }
 }

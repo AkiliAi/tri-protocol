@@ -79,6 +79,8 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
+    "@langchain/core": "^0.3.75",
+    "@langchain/langgraph": "^0.4.9",
     "@modelcontextprotocol/sdk": "^1.17.5",
     "bonjour": "^3.5.0"
   }

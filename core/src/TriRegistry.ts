@@ -43,7 +43,7 @@ export class TriRegistry extends EventEmitter {
         this.protocolIndex.get(protocol)?.add(profile.agentId);
 
         // Update capability index
-        profile.capabilities.forEach(cap => {
+        profile.capabilities.forEach((cap: any) => {
             if (!this.capabilityIndex.has(cap.name)) {
                 this.capabilityIndex.set(cap.name, new Set());
             }
@@ -60,7 +60,7 @@ export class TriRegistry extends EventEmitter {
         // Remove from indexes
         this.protocolIndex.get(entry.protocol)?.delete(agentId);
 
-        entry.profile.capabilities.forEach(cap => {
+        entry.profile.capabilities.forEach((cap: any) => {
             this.capabilityIndex.get(cap.name)?.delete(agentId);
         });
 

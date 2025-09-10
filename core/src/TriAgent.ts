@@ -16,10 +16,10 @@ import {
     AgentSystemFeatures,
     A2AMessage,
     A2AMessageType
-} from '@protocols/a2a/types';
+} from '../../protocols/src/a2a/types';
 import { v4 as uuidv4 } from 'uuid';
 import { Logger } from '../../logger';
-import { MCPClientManager } from '@protocols/mcp';
+import { MCPClientManager } from '../../protocols/src/mcp';
 import type {
     MCPConfig,
     MCPServerConnection,
@@ -28,7 +28,7 @@ import type {
     ToolExecutionResponse,
     ResourceReadResponse,
     AgentMCPCapabilities
-} from '@protocols/mcp';
+} from '../../protocols/src/mcp';
 
 export interface TriAgentConfig {
     id: string;
@@ -244,17 +244,17 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
     private setupMCPEventHandlers(): void {
         if (!this.mcpManager) return;
 
-        this.mcpManager.on('server:connected', (serverName, capabilities) => {
+        this.mcpManager.on('server:connected', (serverName: any, capabilities: any) => {
             this.logger.info(`MCP server connected: ${serverName}`, { capabilities });
             this.emit('mcp:server:connected', serverName, capabilities);
         });
 
-        this.mcpManager.on('server:disconnected', (serverName, reason) => {
+        this.mcpManager.on('server:disconnected', (serverName: any, reason: any) => {
             this.logger.warn(`MCP server disconnected: ${serverName}`, { reason });
             this.emit('mcp:server:disconnected', serverName, reason);
         });
 
-        this.mcpManager.on('tool:executed', (response) => {
+        this.mcpManager.on('tool:executed', (response: any) => {
             this.logger.debug(`MCP tool executed: ${response.toolName}`, {
                 success: response.success,
                 duration: response.duration
@@ -262,7 +262,7 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
             this.emit('mcp:tool:executed', response);
         });
 
-        this.mcpManager.on('error', (error, context) => {
+        this.mcpManager.on('error', (error: any, context: any) => {
             this.logger.error('MCP error', error, context);
             this.emit('mcp:error', error, context);
         });
@@ -347,7 +347,7 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
         const allResources = await this.mcpManager.listAllResources();
         const resources: MCPResource[] = [];
         
-        allResources.forEach(serverResources => {
+        allResources.forEach((serverResources: any) => {
             resources.push(...serverResources);
         });
         

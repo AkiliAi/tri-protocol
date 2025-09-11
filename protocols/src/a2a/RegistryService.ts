@@ -1,4 +1,4 @@
-import { Logger } from '@tri-protocol/logger';
+
 /**
  * A2A Protocol Registry Service
  * Agent-to-Agent (A2A) communication RegistryService implementation.
@@ -11,6 +11,7 @@ import express, { Express, Request, Response } from 'express';
 import { createServer, Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { EventEmitter } from 'eventemitter3';
+import { Logger } from '../../../logger';
 import { v4 as uuidv4 } from 'uuid';
 import {
     AgentProfile,

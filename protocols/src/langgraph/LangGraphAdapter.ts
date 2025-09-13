@@ -1,28 +1,27 @@
-import { StateGraph, StateGraphArgs } from '@langchain/langgraph';
-import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '@langchain/core/messages';
-import { EventEmitter } from 'eventemitter3';
-import { Logger } from '@tri-protocol/logger';
-import { v4 as uuidv4 } from 'uuid';
+import {StateGraph, StateGraphArgs} from '@langchain/langgraph';
+import {AIMessage, HumanMessage, SystemMessage} from '@langchain/core/messages';
+import {EventEmitter} from 'eventemitter3';
+import {Logger} from '../../../logger';
+import {v4 as uuidv4} from 'uuid';
+
 import {
-  WorkflowDefinition,
-  WorkflowNode,
-  WorkflowEdge,
-  WorkflowState,
-  WorkflowExecution,
   CompiledWorkflow,
-  ExecutionConfig,
-  LangGraphConfig,
-  NodeFunction,
   ConditionalRoute,
-  Checkpoint,
-  WorkflowInfo,
-  StreamOutput,
+  ExecutionConfig,
+  ExecutionHistory,
   HumanInputRequest,
   HumanInputResponse,
+  LangGraphConfig,
   NodeExecutionError,
-  WorkflowTimeoutError,
+  NodeFunction,
+  StreamOutput,
+  WorkflowDefinition,
   WorkflowError,
-  ExecutionHistory
+  WorkflowExecution,
+  WorkflowInfo,
+  WorkflowNode,
+  WorkflowState,
+  WorkflowTimeoutError
 } from './types';
 
 export class LangGraphAdapter extends EventEmitter {
@@ -193,19 +192,23 @@ export class LangGraphAdapter extends EventEmitter {
         });
         
         // Process stream
+        let lastState = input;
         for await (const output of stream) {
           this.handleStreamOutput(executionId, output);
+          // Update state from stream output
+          if (output && typeof output === 'object') {
+            lastState = { ...lastState, ...output };
+          }
         }
+        execution.state = lastState;
       } else {
         // Direct invocation
-        const finalState = await workflow.compiled.invoke(input, {
+        execution.state = await workflow.compiled.invoke(input, {
           recursionLimit: config?.recursionLimit || 25,
           configurable: {
             thread_id: executionId
           }
         });
-        
-        execution.state = finalState;
       }
       
       // Clear timeout
@@ -280,6 +283,11 @@ export class LangGraphAdapter extends EventEmitter {
           history: [...(state.history || []), history]
         };
         
+        // Update metrics
+        if (this.currentExecution) {
+          this.currentExecution.metrics.nodesExecuted++;
+        }
+        
         this.emit('node:executed', { 
           nodeId: node.id, 
           type: node.type,
@@ -318,6 +326,38 @@ export class LangGraphAdapter extends EventEmitter {
       throw new NodeExecutionError('A2A adapter not available for agent node', node.id);
     }
     
+    // Handle different types of A2A nodes
+    if (node.metadata?.broadcast) {
+      // Handle broadcast node - no specific agent ID needed
+      return this.executeBroadcastNode(node, state);
+    }
+    
+    if (node.metadata?.healthCheck) {
+      // Handle health check node
+      return this.executeHealthCheckNode(node, state);
+    }
+    
+    if (node.metadata?.loadBalancer) {
+      // Handle load balancer node
+      return this.executeLoadBalancerNode(node, state);
+    }
+    
+    if (node.metadata?.delegation) {
+      // Handle delegation node - no specific agent needed
+      return this.executeDelegationNode(node, state);
+    }
+    
+    if (node.metadata?.negotiation) {
+      // Handle negotiation node
+      return this.executeNegotiationNode(node, state);
+    }
+    
+    if (node.metadata?.aggregation) {
+      // Handle aggregation node
+      return this.executeAggregationNode(node, state);
+    }
+    
+    // Default: single agent message
     const agentId = node.metadata?.agentId;
     if (!agentId) {
       throw new NodeExecutionError('Agent ID not specified in node metadata', node.id);
@@ -375,6 +415,162 @@ export class LangGraphAdapter extends EventEmitter {
     };
   }
   
+  // Helper methods for different A2A node types
+  private async executeBroadcastNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    const message = node.metadata?.message || state.messages?.slice(-1)[0];
+    const messageType = node.metadata?.messageType || 'BROADCAST';
+    
+    // For broadcast, we'll use a special broadcast method if available
+    // For now, return state with broadcast context
+    return {
+      context: {
+        ...state.context,
+        [`${node.id}_broadcast`]: {
+          message,
+          messageType,
+          timestamp: new Date(),
+          status: 'broadcasted'
+        }
+      }
+    };
+  }
+  
+  private async executeHealthCheckNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    const agentIds = node.metadata?.agentIds || [];
+    const results: Record<string, any> = {};
+    
+    // Perform health checks on specified agents
+    for (const agentId of agentIds) {
+      try {
+        // This would call a health check method on the A2A adapter
+        results[agentId] = { status: 'healthy', timestamp: new Date() };
+      } catch (error) {
+        results[agentId] = { status: 'unhealthy', error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+    
+    return {
+      context: {
+        ...state.context,
+        [`${node.id}_health_results`]: results
+      }
+    };
+  }
+  
+  private async executeLoadBalancerNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    const agentPool = node.metadata?.agentPool || [];
+    const strategy = node.metadata?.strategy || 'round-robin';
+    const lastUsedIndex = state.context?.lastUsedAgentIndex ?? -1;
+    
+    let selectedAgent: string;
+    let selectedIndex: number;
+    
+    switch (strategy) {
+      case 'round-robin':
+        selectedIndex = (lastUsedIndex + 1) % agentPool.length;
+        selectedAgent = agentPool[selectedIndex];
+        break;
+      case 'random':
+        selectedIndex = Math.floor(Math.random() * agentPool.length);
+        selectedAgent = agentPool[selectedIndex];
+        break;
+      default:
+        selectedIndex = 0;
+        selectedAgent = agentPool[0];
+    }
+    
+    // Now send message to selected agent
+    const message = node.metadata?.message || state.messages?.slice(-1)[0];
+    const correlationId = `workflow-${this.currentExecution?.workflowId}-node-${node.id}-${Date.now()}`;
+    
+    const response = await this.a2aAdapter.sendMessage({
+      to: selectedAgent,
+      type: 'TASK_REQUEST',
+      correlationId,
+      payload: {
+        task: node.metadata?.task,
+        context: state.context,
+        message
+      }
+    });
+    
+    return {
+      messages: [...(state.messages || []), new AIMessage({
+        content: response.data?.content || JSON.stringify(response.data),
+        name: selectedAgent
+      })],
+      context: {
+        ...state.context,
+        lastUsedAgentIndex: selectedIndex,
+        [`${node.id}_selected_agent`]: selectedAgent,
+        [`${node.id}_result`]: response.data
+      }
+    };
+  }
+  
+  private async executeDelegationNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    // Execute the node function to get delegation info
+    const result = await node.function(state);
+    
+    return {
+      ...result,
+      context: {
+        ...state.context,
+        ...result.context,
+        [`${node.id}_delegated`]: true,
+        [`${node.id}_timestamp`]: new Date()
+      }
+    };
+  }
+  
+  private async executeNegotiationNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    // Execute the node function to handle negotiation
+    const result = await node.function(state);
+    
+    return {
+      ...result,
+      context: {
+        ...state.context,
+        ...result.context,
+        [`${node.id}_negotiated`]: true,
+        [`${node.id}_timestamp`]: new Date()
+      }
+    };
+  }
+  
+  private async executeAggregationNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    // Execute the node function to aggregate results
+    const result = await node.function(state);
+    
+    return {
+      ...result,
+      context: {
+        ...state.context,
+        ...result.context,
+        [`${node.id}_aggregated`]: true,
+        [`${node.id}_timestamp`]: new Date()
+      }
+    };
+  }
+  
   // INTEGRATION WITH MCP
   private async executeToolNode(
     node: WorkflowNode,
@@ -382,6 +578,11 @@ export class LangGraphAdapter extends EventEmitter {
   ): Promise<Partial<WorkflowState>> {
     if (!this.mcpAdapter) {
       throw new NodeExecutionError('MCP adapter not available for tool node', node.id);
+    }
+    
+    // Check if this is a parallel tools node
+    if (node.metadata?.parallelTools) {
+      return this.executeParallelToolsNode(node, state);
     }
     
     const toolName = node.metadata?.tool;
@@ -837,6 +1038,43 @@ export class LangGraphAdapter extends EventEmitter {
     
     this.workflows.delete(workflowId);
     this.emit('workflow:deleted', { workflowId });
+  }
+  
+  private async executeParallelToolsNode(
+    node: WorkflowNode,
+    state: WorkflowState
+  ): Promise<Partial<WorkflowState>> {
+    // Execute the node function to get tools info
+    const result = await node.function(state);
+    const tools = result.context?.parallelTools?.tools || [];
+    
+    // Execute all tools in parallel
+    const toolPromises = tools.map(async (toolDef: any) => {
+      try {
+        const toolResult = await this.mcpAdapter.executeTool({
+          toolName: toolDef.tool,
+          arguments: toolDef.args
+        });
+        return { id: toolDef.id || toolDef.tool, result: toolResult, success: true };
+      } catch (error) {
+        return { 
+          id: toolDef.id || toolDef.tool, 
+          error: error instanceof Error ? error.message : String(error),
+          success: false 
+        };
+      }
+    });
+    
+    const results = await Promise.all(toolPromises);
+    
+    return {
+      context: {
+        ...state.context,
+        ...result.context,
+        [`${node.id}_results`]: results,
+        [`${node.id}_timestamp`]: new Date()
+      }
+    };
   }
   
   // HELPER METHODS

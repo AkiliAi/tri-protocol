@@ -14,6 +14,7 @@ import type {
   AgentCapability,
   A2AMessage
 } from '../../protocols/src/a2a/types';
+import { CapabilityCategory } from '../../protocols/src/a2a/types';
 import type {
   MCPServerConnection,
   ToolExecutionResponse
@@ -32,21 +33,35 @@ class TestMCPAgent extends TriAgent {
       description: 'Test agent with MCP support',
       capabilities: [
         {
+          id: 'process-data',
           name: 'process_data',
           description: 'Process data using MCP tools',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              action: { type: 'string' },
-              data: { type: 'any' }
+          category: CapabilityCategory.ANALYSIS,
+          inputs: [
+            {
+              name: 'action',
+              type: 'string',
+              required: true,
+              description: 'Action to perform'
+            },
+            {
+              name: 'data',
+              type: 'object',
+              required: false,
+              description: 'Data to process'
             }
-          },
-          outputSchema: {
-            type: 'object',
-            properties: {
-              result: { type: 'any' }
+          ],
+          outputs: [
+            {
+              name: 'result',
+              type: 'object',
+              required: true,
+              description: 'Processing result'
             }
-          }
+          ],
+          cost: 10,
+          reliability: 0.95,
+          version: '1.0.0'
         }
       ],
       enableMCP,
@@ -64,7 +79,9 @@ class TestMCPAgent extends TriAgent {
   async processMessage(message: Message): Promise<Message> {
     this.receivedMessages.push(message);
 
-    const content = message.parts[0]?.data;
+    const content = message.parts[0] && 'text' in message.parts[0] 
+      ? JSON.parse(message.parts[0].text) 
+      : message.parts[0];
     
     if (content?.action === 'use_mcp_tool') {
       const { toolName, args } = content;
@@ -109,6 +126,11 @@ class TestMCPAgent extends TriAgent {
     this.logger.debug('Processing task', { taskId: task.id });
   }
 
+  // Public method to send messages to other agents for testing
+  async sendMessage(targetAgent: string, message: any): Promise<any> {
+    return this.sendToAgent(targetAgent, message);
+  }
+
   private createResponse(data: any): Message {
     return {
       role: 'agent',
@@ -145,8 +167,16 @@ describe('MCP-A2A Integration', () => {
   beforeEach(async () => {
     // Initialize Tri-Protocol components
     registry = new TriRegistry();
-    protocol = new TriProtocol();
-    await protocol.initialize(registry);
+    protocol = new TriProtocol({
+      name: 'mcp-a2a-test',
+      version: '1.0.0',
+      protocols: {
+        a2a: { enabled: true },
+        mcp: { enabled: true },
+        langgraph: { enabled: false }
+      }
+    });
+    await protocol.initialize();
 
     // Create agents
     agentWithMCP = new TestMCPAgent('agent-mcp', true);
@@ -200,7 +230,7 @@ describe('MCP-A2A Integration', () => {
 
   describe('Basic MCP-A2A Communication', () => {
     it('should allow agents to discover MCP tools', async () => {
-      const response = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'list_tools'
       });
 
@@ -214,7 +244,7 @@ describe('MCP-A2A Integration', () => {
     });
 
     it('should execute MCP tools through A2A communication', async () => {
-      const response = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: {
@@ -230,7 +260,7 @@ describe('MCP-A2A Integration', () => {
     });
 
     it('should handle MCP tool errors gracefully', async () => {
-      const response = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'non_existent_tool',
         args: {}
@@ -248,7 +278,7 @@ describe('MCP-A2A Integration', () => {
         contents: { test: 'data', value: 123 }
       });
 
-      const response = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'read_resource',
         uri: 'test://data.json'
       });
@@ -260,7 +290,7 @@ describe('MCP-A2A Integration', () => {
 
   describe('MCP Tool Execution Tracking', () => {
     it('should track tool executions', async () => {
-      await agentWithoutMCP.sendToAgent('agent-mcp', {
+      await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'multiply', a: 4, b: 5 }
@@ -296,13 +326,13 @@ describe('MCP-A2A Integration', () => {
 
     it('should allow multiple agents to use same MCP server', async () => {
       // Both agents execute tools
-      const response1 = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response1 = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'add', a: 10, b: 20 }
       });
 
-      const response2 = await agentWithoutMCP.sendToAgent('agent-mcp-2', {
+      const response2 = await agentWithoutMCP.sendMessage('agent-mcp-2', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'subtract', a: 50, b: 30 }
@@ -322,7 +352,7 @@ describe('MCP-A2A Integration', () => {
       // Launch multiple concurrent operations
       for (let i = 0; i < 5; i++) {
         promises.push(
-          agentWithoutMCP.sendToAgent('agent-mcp', {
+          agentWithoutMCP.sendMessage('agent-mcp', {
             action: 'use_mcp_tool',
             toolName: 'calculate',
             args: { operation: 'add', a: i, b: i * 2 }
@@ -330,7 +360,7 @@ describe('MCP-A2A Integration', () => {
         );
 
         promises.push(
-          agentWithoutMCP.sendToAgent('agent-mcp-2', {
+          agentWithoutMCP.sendMessage('agent-mcp-2', {
             action: 'use_mcp_tool',
             toolName: 'calculate',
             args: { operation: 'multiply', a: i, b: 3 }
@@ -353,7 +383,7 @@ describe('MCP-A2A Integration', () => {
       await mockServer.stop();
 
       // Try to use a tool
-      const response = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const response = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'add', a: 1, b: 1 }
@@ -364,7 +394,7 @@ describe('MCP-A2A Integration', () => {
     });
 
     it('should work with agents that dont have MCP enabled', async () => {
-      const response = await agentWithMCP.sendToAgent('agent-no-mcp', {
+      const response = await agentWithMCP.sendMessage('agent-no-mcp', {
         action: 'process_data',
         data: { test: 'data' }
       });
@@ -377,7 +407,7 @@ describe('MCP-A2A Integration', () => {
   describe('Complex MCP Workflows', () => {
     it('should support chained MCP operations', async () => {
       // First operation: calculate
-      const calc1 = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const calc1 = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'multiply', a: 5, b: 4 }
@@ -386,7 +416,7 @@ describe('MCP-A2A Integration', () => {
       const result1 = calc1.parts[0].data.result.result;
 
       // Second operation: use result from first
-      const calc2 = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const calc2 = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'add', a: result1, b: 10 }
@@ -397,7 +427,7 @@ describe('MCP-A2A Integration', () => {
 
     it('should support mixed MCP and non-MCP operations', async () => {
       // MCP operation
-      const mcpResponse = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const mcpResponse = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'add', a: 10, b: 5 }
@@ -406,7 +436,7 @@ describe('MCP-A2A Integration', () => {
       expect(mcpResponse.parts[0].data.success).toBe(true);
 
       // Non-MCP operation
-      const normalResponse = await agentWithoutMCP.sendToAgent('agent-mcp', {
+      const normalResponse = await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'process_data',
         data: { value: mcpResponse.parts[0].data.result.result }
       });
@@ -423,7 +453,7 @@ describe('MCP-A2A Integration', () => {
         events.push({ type: 'tool:executed', response });
       });
 
-      await agentWithoutMCP.sendToAgent('agent-mcp', {
+      await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'use_mcp_tool',
         toolName: 'calculate',
         args: { operation: 'add', a: 1, b: 2 }
@@ -440,13 +470,13 @@ describe('MCP-A2A Integration', () => {
   describe('Performance and Caching', () => {
     it('should cache tool discovery results', async () => {
       const start1 = Date.now();
-      await agentWithoutMCP.sendToAgent('agent-mcp', {
+      await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'list_tools'
       });
       const time1 = Date.now() - start1;
 
       const start2 = Date.now();
-      await agentWithoutMCP.sendToAgent('agent-mcp', {
+      await agentWithoutMCP.sendMessage('agent-mcp', {
         action: 'list_tools'
       });
       const time2 = Date.now() - start2;
@@ -461,7 +491,7 @@ describe('MCP-A2A Integration', () => {
 
       for (let i = 0; i < count; i++) {
         promises.push(
-          agentWithoutMCP.sendToAgent('agent-mcp', {
+          agentWithoutMCP.sendMessage('agent-mcp', {
             action: 'use_mcp_tool',
             toolName: 'calculate',
             args: { operation: 'add', a: i, b: 1 }

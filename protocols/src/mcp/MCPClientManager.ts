@@ -549,8 +549,17 @@ export class MCPClientManager extends EventEmitter implements IMCPClientManager 
       }
       
       for (const middleware of this.config.toolMiddleware || []) {
-        if (middleware.onError && toolForError) {
-          await middleware.onError(toolForError, error as Error);
+        if (middleware.onError) {
+          // Only call onError if we have a tool description
+          // For non-existent tools, create a minimal description
+          const toolDesc = toolForError || ({
+            name: request.toolName,
+            description: 'Unknown tool',
+            inputSchema: {},
+            serverName: request.serverName || targetServer || 'unknown',
+            discoveredAt: new Date()
+          } as unknown as MCPToolDescription);
+          await middleware.onError(toolDesc, error as Error);
         }
       }
 

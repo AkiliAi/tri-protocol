@@ -15,7 +15,7 @@ export interface HybridDiscoveryConfig {
 
 export class HybridDiscovery extends EventEmitter {
     private logger: Logger;
-    private config: HybridDiscoveryConfig;
+    public config: HybridDiscoveryConfig;
     private mdns?: any;
     private browser?: any;
     private discoveryMode: 'central' | 'p2p' | 'hybrid' = 'hybrid';
@@ -104,6 +104,16 @@ export class HybridDiscovery extends EventEmitter {
                         ),
                         endpoint: this.config.agentCard.url,
                         version: this.config.agentCard.version || '1.0.0'
+                    }
+                });
+                
+                // Handle service name conflicts
+                service.on('error', (err: any) => {
+                    if (err.message && err.message.includes('Service name is already in use')) {
+                        this.logger.warn(`mDNS service name conflict for ${this.config.agentCard.name}, continuing without P2P`);
+                        // Don't reject, just continue without this service
+                    } else {
+                        this.logger.error('mDNS service error:', err);
                     }
                 });
 

@@ -7,7 +7,7 @@
  */
 // protocols/src/a2a/A2AProtocol.ts
 import { EventEmitter } from 'eventemitter3';
-import axios ,{AxiosInstance} from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
 import { HybridDiscovery} from "./HybridDiscovery";
@@ -652,8 +652,12 @@ export class A2AProtocol extends EventEmitter {
 
             return response.data as JSONRPCResponse;
         } catch (error) {
-            if (axios.isAxiosError(error) && error.response?.data) {
-                return error.response.data as JSONRPCResponse;
+            // Check if it's an axios error with response data
+            if (error && typeof error === 'object' && 'isAxiosError' in error && error.isAxiosError === true) {
+                const axiosError = error as AxiosError;
+                if (axiosError.response?.data) {
+                    return axiosError.response.data as JSONRPCResponse;
+                }
             }
             throw new A2AError(
                 'JSONRPC request failed',
@@ -758,9 +762,11 @@ export class A2AProtocol extends EventEmitter {
             this.discovery?.sendHeartbeat(this.agentCard.name);
         }, 30000);
 
-        // S'enregistrer au démarrage
-        const profile = this.createAgentProfile();
-        await this.discovery.registerWithCentral(profile);
+        // S'enregistrer au démarrage seulement si un registre central est configuré
+        if (this.discovery.config?.registryUrl) {
+            const profile = this.createAgentProfile();
+            await this.discovery.registerWithCentral(profile);
+        }
     }
 
     /**

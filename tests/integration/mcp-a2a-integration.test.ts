@@ -167,11 +167,18 @@ describe('MCP-A2A Integration', () => {
   beforeEach(async () => {
     // Initialize Tri-Protocol components
     registry = new TriRegistry();
+    // Use unique name to avoid mDNS conflicts
+    const uniqueName = `mcp-a2a-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     protocol = new TriProtocol({
-      name: 'mcp-a2a-test',
+      name: uniqueName,
       version: '1.0.0',
       protocols: {
-        a2a: { enabled: true },
+        a2a: { 
+          enabled: true,
+          network: {
+            enableP2P: false  // Disable P2P to avoid mDNS conflicts in tests
+          }
+        },
         mcp: { enabled: true },
         langgraph: { enabled: false }
       }

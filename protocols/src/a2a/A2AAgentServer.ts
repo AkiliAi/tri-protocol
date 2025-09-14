@@ -5,16 +5,17 @@
  *Fist Core (Alpha) Protocol of the Tri Protocol
  */
 
-// packages/protocols/src/a2a/A2AAgentServer.ts
+//protocols/src/a2a/A2AAgentServer.ts
 import express, { Express, Request, Response, NextFunction } from 'express';
 import { createServer, Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import cors from 'cors';
-import bodyParser from 'body-parser';
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';
 import {CorsOptions} from "cors";
 import cookieParser from 'cookie-parser';
+import { Logger } from '../../../logger';
+import { createExpressLogger, createErrorLogger } from '../../../logger';
 import {
     AgentCard,
     JSONRPCRequest,
@@ -68,6 +69,7 @@ export interface StreamHandler {
 }
 
 export class A2AAgentServer extends EventEmitter {
+    private logger: Logger;
     private app: Express;
     private httpServer: HttpServer;
     private io?: SocketServer;
@@ -96,6 +98,19 @@ export class A2AAgentServer extends EventEmitter {
         super();
         this.agentCard = agentCard;
         this.config = config;
+        
+        // Initialize logger
+        this.logger = Logger.getLogger('A2AAgentServer').child({
+            agentName: agentCard.name,
+            port: config.port,
+            host: config.host || 'localhost'
+        });
+        
+        this.logger.info('Initializing A2A Agent Server', {
+            transport: agentCard.preferredTransport,
+            streaming: agentCard.systemFeatures?.streaming
+        });
+        
         this.app = express();
         this.httpServer = createServer(this.app);
         this.securityManager = new SecurityManager(agentCard.securitySchemes || []);
@@ -117,17 +132,23 @@ export class A2AAgentServer extends EventEmitter {
             allowedHeaders: ['Content-Type', 'Authorization', 'X-Agent-Protocol', 'X-Agent-Id']
         }));
 
-        // Body parser
-        this.app.use(bodyParser.json({ limit: this.config.maxRequestSize || '10mb' }));
-        this.app.use(bodyParser.urlencoded({ extended: true }));
+        // Body parser - Express 5 has built-in JSON parsing
+        this.app.use(express.json({ limit: this.config.maxRequestSize || '10mb' }));
+        this.app.use(express.urlencoded({ extended: true }));
 
         // Cookie parser
         this.app.use(cookieParser());
 
-        // Request logging
+        // Request logging with Express Logger middleware
+        this.app.use(createExpressLogger({
+            logger: this.logger,
+            excludePaths: ['/health', '/metrics'],
+            includeBody: this.logger.getLevel() === 'debug'
+        }));
+        
+        // Metrics tracking
         this.app.use((req, res, next) => {
             this.metrics.totalRequests++;
-            console.log(`[A2A Server] ${req.method} ${req.path}`);
             next();
         });
 
@@ -137,10 +158,18 @@ export class A2AAgentServer extends EventEmitter {
 
 
 
-        // Error handling
+        // Error handling with Logger
         this.app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
             this.metrics.failedRequests++;
-            console.error('[A2A Server] Error:', err);
+            
+            const requestId = (req as any).requestId || 'unknown';
+            this.logger.error('Request error', err, {
+                method: req.method,
+                path: req.path,
+                requestId,
+                statusCode: 500
+            });
+            
             res.status(500).json({
                 jsonrpc: '2.0',
                 id: null,
@@ -237,7 +266,10 @@ export class A2AAgentServer extends EventEmitter {
 
         this.io.on('connection', (socket) => {
             this.metrics.activeConnections++;
-            console.log(`[A2A Server] WebSocket client connected: ${socket.id}`);
+            this.logger.info('WebSocket client connected', {
+                socketId: socket.id,
+                activeConnections: this.metrics.activeConnections
+            });
 
             socket.on('disconnect', () => {
                 this.metrics.activeConnections--;
@@ -245,8 +277,12 @@ export class A2AAgentServer extends EventEmitter {
                 const streamId = this.activeStreams.get(socket.id);
                 if (streamId) {
                     this.activeStreams.delete(socket.id);
+                    this.logger.debug('Cleaned up active stream', { streamId, socketId: socket.id });
                 }
-                console.log(`[A2A Server] WebSocket client disconnected: ${socket.id}`);
+                this.logger.info('WebSocket client disconnected', {
+                    socketId: socket.id,
+                    activeConnections: this.metrics.activeConnections
+                });
             });
 
             socket.on('message', async (data) => {
@@ -260,6 +296,9 @@ export class A2AAgentServer extends EventEmitter {
                         socket.emit('response', response);
                     }
                 } catch (error) {
+                    this.logger.error('WebSocket message error', error as Error, {
+                        socketId: socket.id
+                    });
                     socket.emit('error', {
                         jsonrpc: '2.0',
                         id: null,
@@ -773,7 +812,7 @@ export class A2AAgentServer extends EventEmitter {
      */
     registerMessageHandler(type: string, handler: MessageHandler): void {
         this.messageHandlers.set(type, handler);
-        console.log(`[A2A Server] Registered message handler: ${type}`);
+        this.logger.debug('Registered message handler', { type });
     }
 
     /**
@@ -781,21 +820,27 @@ export class A2AAgentServer extends EventEmitter {
      */
     registerStreamHandler(type: string, handler: StreamHandler): void {
         this.streamHandlers.set(type, handler);
-        console.log(`[A2A Server] Registered stream handler: ${type}`);
+        this.logger.debug('Registered stream handler', { type });
     }
 
     /**
      * Start the server
      */
     async start(): Promise<void> {
+        const timer = this.logger.startTimer();
         return new Promise((resolve) => {
             const host = this.config.host || '0.0.0.0';
             this.httpServer.listen(this.config.port, host, () => {
-                console.log(`[A2A Server] Started on ${host}:${this.config.port}`);
-                console.log(`[A2A Server] Agent: ${this.agentCard.name}`);
-                console.log(`[A2A Server] Transport: ${this.agentCard.preferredTransport}`);
-                // console.log(`[A2A Server] Streaming: ${this.agentCard.systemFeatures?.includes('streaming') ? 'Enabled' : 'Disabled'}`);
-                console.log(`[A2A Server] Streaming: ${this.agentCard.systemFeatures && this.agentCard.systemFeatures.streaming ? 'Enabled' : 'Disabled'}`);
+                timer('A2A Server started');
+                this.logger.info('A2A Server started successfully', {
+                    host,
+                    port: this.config.port,
+                    agent: this.agentCard.name,
+                    transport: this.agentCard.preferredTransport,
+                    streaming: this.agentCard.systemFeatures?.streaming ? 'Enabled' : 'Disabled',
+                    healthCheck: this.config.enableHealthCheck ? 'Enabled' : 'Disabled',
+                    metrics: this.config.enableMetrics ? 'Enabled' : 'Disabled'
+                });
                 this.emit('server:started', { host, port: this.config.port });
                 resolve();
             });
@@ -806,15 +851,17 @@ export class A2AAgentServer extends EventEmitter {
      * Stop the server
      */
     async stop(): Promise<void> {
+        this.logger.info('Stopping A2A Server...');
         return new Promise((resolve) => {
             // Close WebSocket connections
             if (this.io) {
                 this.io.close();
+                this.logger.debug('WebSocket connections closed');
             }
 
             // Close HTTP server
             this.httpServer.close(() => {
-                console.log('[A2A Server] Stopped');
+                this.logger.info('A2A Server stopped successfully');
                 this.emit('server:stopped');
                 resolve();
             });

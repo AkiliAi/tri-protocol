@@ -1,0 +1,33 @@
+{
+  "name": "@tri-protocol/logger",
+  "version": "1.0.0",
+  "description": "Centralized logging system for Tri-Protocol Framework",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prepublish": "npm run build",
+    "test": "jest"
+  },
+  "keywords": [
+    "logger",
+    "winston",
+    "tri-protocol",
+    "logging"
+  ],
+  "author": "Tri-Protocol Team",
+  "license": "MIT",
+  "dependencies": {
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.3.1",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "express": "^5.0.0"
+  }
+}

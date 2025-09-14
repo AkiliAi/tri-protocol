@@ -4,6 +4,7 @@
   "description": "A2A Protocol (Communication) +  LangGraph (Orchestration) +  MCP (Tools &amp; Resources) =  🔥 TRI-PROTOCOL FRAMEWORK 🔥",
   "private": true,
   "workspaces": [
+    "logger",
     "core",
     "protocols",
     "runtime",
@@ -24,6 +25,12 @@
     "test:a2a:all": "jest tests/unit/protocols/a2a/*.test.ts",
     "test:a2a:coverage": "jest tests/unit/protocols/a2a/*.test.ts --coverage",
     "test:a2a:watch": "jest tests/unit/protocols/a2a/*.test.ts --watch",
+    "test:mcp": "ts-node scripts/test-mcp.ts",
+    "test:mcp:real": "ts-node scripts/test-mcp.ts --real",
+    "test:mcp:all": "jest tests/unit/protocols/mcp/*.test.ts",
+    "test:mcp:integration": "jest tests/integration/mcp-a2a-integration.test.ts",
+    "test:langgraph:all": "jest tests/unit/protocols/langgraph/*.test.ts",
+    "test:protocols:all": "jest tests/unit/protocols/**/*.test.ts",
     "lint": "lerna run lint --stream",
     "dev": "lerna run dev ",
     "version": "lerna version ",
@@ -74,6 +81,9 @@
     "npm": ">=9.0.0"
   },
   "dependencies": {
+    "@langchain/core": "^0.3.75",
+    "@langchain/langgraph": "^0.4.9",
+    "@modelcontextprotocol/sdk": "^1.17.5",
     "bonjour": "^3.5.0"
   }
 }

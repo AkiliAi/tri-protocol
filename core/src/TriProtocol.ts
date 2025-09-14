@@ -1,14 +1,17 @@
 // core/src/TriProtocol.ts
 import { EventEmitter } from 'eventemitter3';
-import { A2AProtocol } from '@protocols/a2a/A2AProtocol';
+import { A2AProtocol } from '@protocols/a2a';
 import {
     AgentCard,
     AgentProfile,
     Message,
     Task,
     A2AMessage
-} from '@protocols/a2a/types';
-
+} from '@protocols/a2a';
+import { LangGraphAdapter } from '@protocols/langgraph';
+import { MCPAdapter } from '@protocols/mcp';
+import type { WorkflowDefinition, WorkflowExecution } from '@protocols/langgraph';
+import { Logger } from '../../logger';
 export interface TriProtocolConfig {
     name: string;
     version: string;
@@ -34,37 +37,42 @@ export interface TriProtocolConfig {
 export class TriProtocol extends EventEmitter {
     private config: TriProtocolConfig;
     private a2aProtocol?: A2AProtocol;
+    private langGraphAdapter?: LangGraphAdapter;
+    private mcpAdapter?: MCPAdapter;
+    private adapters = new Map<string, any>();
     private isInitialized = false;
+    private logger: Logger;
 
     constructor(config: TriProtocolConfig) {
         super();
         this.config = config;
+        this.logger = Logger.getLogger('TriProtocol');
     }
 
     async initialize(): Promise<void> {
         if (this.isInitialized) return;
 
-        console.log('🚀 Initializing Tri-Protocol...');
+        this.logger.info('Initializing Tri-Protocol...');
 
         // Initialize A2A Protocol
         if (this.config.protocols.a2a?.enabled) {
             await this.initializeA2A();
         }
 
-        // Future: Initialize LangGraph
+        // Initialize LangGraph
         if (this.config.protocols.langgraph?.enabled) {
-            // await this.initializeLangGraph();
+            await this.initializeLangGraph(this.config.protocols.langgraph);
         }
 
-        // Future: Initialize MCP
+        // Initialize MCP
         if (this.config.protocols.mcp?.enabled) {
-            // await this.initializeMCP();
+            await this.initializeMCP(this.config.protocols.mcp);
         }
 
         this.setupCrossProtocolBridge();
         this.isInitialized = true;
 
-        console.log('✅ Tri-Protocol initialized successfully');
+        this.logger.info('Tri-Protocol initialized successfully');
         this.emit('initialized');
     }
 
@@ -92,7 +100,7 @@ export class TriProtocol extends EventEmitter {
         });
 
         this.setupA2AEventHandlers();
-        console.log('✅ A2A Protocol initialized');
+        this.logger.info('A2A Protocol initialized');
     }
 
     private setupA2AEventHandlers(): void {
@@ -116,6 +124,67 @@ export class TriProtocol extends EventEmitter {
         });
     }
 
+    private async initializeLangGraph(config: any): Promise<void> {
+        this.langGraphAdapter = new LangGraphAdapter();
+        
+        // Pass references to other adapters for integration
+        await this.langGraphAdapter.initialize({
+            ...config.config,
+            a2aAdapter: this.a2aProtocol,
+            mcpAdapter: this.mcpAdapter
+        });
+        
+        this.adapters.set('langgraph', this.langGraphAdapter);
+        
+        // Setup LangGraph event handlers
+        this.setupLangGraphEventHandlers();
+        this.logger.info('LangGraph adapter initialized');
+    }
+
+    private async initializeMCP(config: any): Promise<void> {
+        this.mcpAdapter = new MCPAdapter(config.config);
+        
+        await this.mcpAdapter.connect();
+        
+        this.adapters.set('mcp', this.mcpAdapter);
+        
+        // Setup MCP event handlers
+        this.setupMCPEventHandlers();
+        this.logger.info('MCP adapter initialized');
+    }
+
+    private setupLangGraphEventHandlers(): void {
+        if (!this.langGraphAdapter) return;
+
+        this.langGraphAdapter.on('workflow:completed', (data: any) => {
+            this.emit('tri:workflow:completed', data);
+        });
+
+        this.langGraphAdapter.on('workflow:failed', (data: any) => {
+            this.emit('tri:workflow:failed', data);
+        });
+
+        this.langGraphAdapter.on('node:executed', (data: any) => {
+            this.emit('tri:workflow:node:executed', data);
+        });
+
+        this.langGraphAdapter.on('human:input:required', (data: any) => {
+            this.emit('tri:workflow:human:input:required', data);
+        });
+    }
+
+    private setupMCPEventHandlers(): void {
+        if (!this.mcpAdapter) return;
+
+        this.mcpAdapter.on('tool:executed', (data: any) => {
+            this.emit('tri:mcp:tool:executed', data);
+        });
+
+        this.mcpAdapter.on('resource:updated', (data: any) => {
+            this.emit('tri:mcp:resource:updated', data);
+        });
+    }
+
     private setupCrossProtocolBridge(): void {
         // Bridge capabilities between protocols
         this.on('tri:a2a:capability:discovered', async (capability) => {
@@ -126,11 +195,26 @@ export class TriProtocol extends EventEmitter {
             });
         });
 
-        // Future: Bridge LangGraph workflows with A2A agents
+        // Bridge LangGraph workflows with A2A agents
         this.on('tri:langgraph:workflow:step', async (step) => {
             if (step.requiresAgent && this.a2aProtocol) {
                 const agents = await this.a2aProtocol.findAgentsByCapability(step.capability);
                 // Route workflow step to appropriate agent
+                if (agents.length > 0 && this.langGraphAdapter) {
+                    // LangGraph can now use these agents
+                    this.emit('tri:agents:available', { step, agents });
+                }
+            }
+        });
+
+        // Bridge MCP tools with LangGraph workflows
+        this.on('tri:langgraph:tool:required', async (toolRequest) => {
+            if (this.mcpAdapter) {
+                const result = await this.mcpAdapter.executeTool({
+                    toolName: toolRequest.tool,
+                    arguments: toolRequest.args
+                });
+                this.emit('tri:tool:result', { request: toolRequest, result });
             }
         });
     }
@@ -172,6 +256,82 @@ export class TriProtocol extends EventEmitter {
         return this.a2aProtocol.routeMessage(message);
     }
 
+    // === LangGraph Workflow Methods ===
+
+    async createWorkflow(definition: WorkflowDefinition): Promise<string> {
+        if (!this.langGraphAdapter) {
+            throw new Error('LangGraph not enabled');
+        }
+        return this.langGraphAdapter.createWorkflow(definition);
+    }
+
+    async executeWorkflow(workflowId: string, input: any, config?: any): Promise<WorkflowExecution> {
+        if (!this.langGraphAdapter) {
+            throw new Error('LangGraph not enabled');
+        }
+        return this.langGraphAdapter.executeWorkflow(workflowId, input, config);
+    }
+
+    async pauseWorkflow(executionId: string): Promise<void> {
+        if (!this.langGraphAdapter) {
+            throw new Error('LangGraph not enabled');
+        }
+        return this.langGraphAdapter.pauseWorkflow(executionId);
+    }
+
+    async resumeWorkflow(executionId: string): Promise<void> {
+        if (!this.langGraphAdapter) {
+            throw new Error('LangGraph not enabled');
+        }
+        return this.langGraphAdapter.resumeWorkflow(executionId);
+    }
+
+    submitHumanInput(nodeId: string, input: any, userId?: string): void {
+        if (!this.langGraphAdapter) {
+            throw new Error('LangGraph not enabled');
+        }
+        this.langGraphAdapter.submitHumanInput(nodeId, input, userId);
+    }
+
+    // === MCP Tool Methods ===
+
+    async executeTool(toolName: string, args: any): Promise<any> {
+        if (!this.mcpAdapter) {
+            throw new Error('MCP not enabled');
+        }
+        return this.mcpAdapter.executeTool({
+            toolName,
+            arguments: args
+        });
+    }
+
+    async listTools(): Promise<any[]> {
+        if (!this.mcpAdapter) {
+            throw new Error('MCP not enabled');
+        }
+        // MCP adapter doesn't have a listTools method, so we'll return resources
+        const resources = await this.mcpAdapter.listResources();
+        // Convert to array if it's a Map
+        if (resources instanceof Map) {
+            return Array.from(resources.values()).flat();
+        }
+        return resources as any[];
+    }
+
+    // === Protocol Access Methods ===
+
+    getA2A(): A2AProtocol | undefined {
+        return this.a2aProtocol;
+    }
+
+    getLangGraph(): LangGraphAdapter | undefined {
+        return this.langGraphAdapter;
+    }
+
+    getMCP(): MCPAdapter | undefined {
+        return this.mcpAdapter;
+    }
+
     // === Status and Monitoring ===
 
     getStatus(): any {
@@ -185,22 +345,38 @@ export class TriProtocol extends EventEmitter {
                     agents: this.a2aProtocol.getRegisteredAgents().length,
                     tasks: this.a2aProtocol.getActiveTasks().length
                 } : { enabled: false },
-                langgraph: { enabled: false }, // Future
-                mcp: { enabled: false } // Future
+                langgraph: this.langGraphAdapter ? {
+                    enabled: true,
+                    workflows: this.langGraphAdapter.listWorkflows().length,
+                    executions: this.langGraphAdapter.listExecutions().length
+                } : { enabled: false },
+                mcp: this.mcpAdapter ? {
+                    enabled: true,
+                    connected: true
+                } : { enabled: false }
             }
         };
     }
 
     async shutdown(): Promise<void> {
-        console.log('🛑 Shutting down Tri-Protocol...');
+        this.logger.info('Shutting down Tri-Protocol...');
 
         if (this.a2aProtocol) {
             await this.a2aProtocol.shutdown();
         }
 
+        if (this.langGraphAdapter) {
+            await this.langGraphAdapter.shutdown();
+        }
+
+        if (this.mcpAdapter) {
+            await this.mcpAdapter.disconnect();
+        }
+
+        this.adapters.clear();
         this.removeAllListeners();
         this.isInitialized = false;
 
-        console.log('✅ Tri-Protocol shutdown complete');
+        this.logger.info('Tri-Protocol shutdown complete');
     }
 }

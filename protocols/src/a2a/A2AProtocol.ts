@@ -5,12 +5,13 @@
  * This allows agents to communicate with each other using the Tri Protocol.
  * Fist Core (Alpha) Protocol of the Tri Protocol
  */
-// packages/protocols/src/a2a/A2AProtocol.ts
+// protocols/src/a2a/A2AProtocol.ts
 import { EventEmitter } from 'eventemitter3';
-import axios ,{AxiosInstance} from 'axios';
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket from 'ws';
 import { HybridDiscovery} from "./HybridDiscovery";
+import { Logger } from '../../../logger';
 
 
 import {
@@ -89,7 +90,7 @@ interface SimpleTaskStatus {
 }
 export class A2AProtocol extends EventEmitter {
     private router: MessageRouter;
-
+    private logger: Logger;
 
     private agentCard: AgentCard;
     private config: A2AProtocolConfig;
@@ -108,6 +109,20 @@ export class A2AProtocol extends EventEmitter {
         super();
         this.config = config;
         this.agentCard = config.agentCard;
+        
+        // Initialize logger with context
+        this.logger = Logger.getLogger('A2AProtocol').child({
+            agentId: config.agentCard.name,
+            protocol: 'a2a',
+            port: config.port || 8080
+        });
+        
+        this.logger.info('Initializing A2A Protocol', {
+            discovery: config.discovery,
+            enableP2P: config.enableP2P,
+            registryUrl: config.registryUrl
+        });
+        
         this.securityManager = new SecurityManager(this.agentCard.securitySchemes || []);
         this.httpClient = this.createHttpClient();
         this.registry = new A2AAgentRegistry({
@@ -205,22 +220,22 @@ export class A2AProtocol extends EventEmitter {
     // JSONRPC implementation
     private setupJSONRPC(): void {
         // Setup JSONRPC server/client
-        console.log('🔌 Setting up JSONRPC transport');
+        this.logger.info('🔌 Setting up JSONRPC transport');
     }
     // GRPC implementation
     private setupGRPC(): void {
         // Setup GRPC server/client
-        console.log('🔌 Setting up GRPC transport');
+        this.logger.info('🔌 Setting up GRPC transport');
     }
     // HTTP JSON implementation
     private setupHTTPJSON(): void {
         // Setup HTTP JSON server/client
-        console.log('🔌 Setting up HTTP JSON transport');
+        this.logger.info('🔌 Setting up HTTP JSON transport');
     }
     // Custom transport implementation
     private setupCustomTransport(protocol: string): void {
         // Setup custom transport based on protocol
-        console.log(`🔌 Setting up custom transport for ${protocol}`);
+        this.logger.info(`🔌 Setting up custom transport for ${protocol}`);
     }
 
     // Send JSONRPC message
@@ -637,8 +652,12 @@ export class A2AProtocol extends EventEmitter {
 
             return response.data as JSONRPCResponse;
         } catch (error) {
-            if (axios.isAxiosError(error) && error.response?.data) {
-                return error.response.data as JSONRPCResponse;
+            // Check if it's an axios error with response data
+            if (error && typeof error === 'object' && 'isAxiosError' in error && error.isAxiosError === true) {
+                const axiosError = error as AxiosError;
+                if (axiosError.response?.data) {
+                    return axiosError.response.data as JSONRPCResponse;
+                }
             }
             throw new A2AError(
                 'JSONRPC request failed',
@@ -691,18 +710,18 @@ export class A2AProtocol extends EventEmitter {
 
             ws.on('open', () => {
                 this.emit('ws:connected', wsUrl);
-                console.log(`🔌 WebSocket connected to ${wsUrl}`);
+                this.logger.info(`🔌 WebSocket connected to ${wsUrl}`);
             });
 
             ws.on('error', (error) => {
                 this.emit('ws:error', { url: wsUrl, error });
-                console.error(`❌ WebSocket error for ${wsUrl}:`, error);
+                this.logger.error(`❌ WebSocket error for ${wsUrl}:`, error);
             });
 
             ws.on('close', () => {
                 this.wsConnections.delete(wsUrl);
                 this.emit('ws:disconnected', wsUrl);
-                console.log(`🔌 WebSocket disconnected from ${wsUrl}`);
+                this.logger.info(`🔌 WebSocket disconnected from ${wsUrl}`);
             });
 
             this.wsConnections.set(wsUrl, ws);
@@ -743,9 +762,11 @@ export class A2AProtocol extends EventEmitter {
             this.discovery?.sendHeartbeat(this.agentCard.name);
         }, 30000);
 
-        // S'enregistrer au démarrage
-        const profile = this.createAgentProfile();
-        await this.discovery.registerWithCentral(profile);
+        // S'enregistrer au démarrage seulement si un registre central est configuré
+        if (this.discovery.config?.registryUrl) {
+            const profile = this.createAgentProfile();
+            await this.discovery.registerWithCentral(profile);
+        }
     }
 
     /**
@@ -830,8 +851,8 @@ export class A2AProtocol extends EventEmitter {
     //     const agentId = profile.agentId;
     //     this.registeredAgents.set(profile.agentId, profile);
     //     this.emit('agent:registered', profile);
-    //     console.log(`✅ Registered agent: ${profile.agentId}`);
-    //     console.log(`[A2A Registry] Agent registered: ${agentId} with ${profile.capabilities.length} capabilities`);
+    //     logger.info(`✅ Registered agent: ${profile.agentId}`);
+    //     logger.info(`[A2A Registry] Agent registered: ${agentId} with ${profile.capabilities.length} capabilities`);
     //     this.updateTopology();
     // }
     registerAgent(profile: AgentProfile): void {
@@ -861,7 +882,7 @@ export class A2AProtocol extends EventEmitter {
     //     this.emit('agent.unregistered', agentId);
     //     this.emit('network.topology.changed', this.getTopology());
     //
-    //     console.log(`[A2A Registry] Agent unregistered: ${agentId}`);
+    //     logger.info(`[A2A Registry] Agent unregistered: ${agentId}`);
     // }
     async unregisterAgent(agentId: string): Promise<void> {
         await this.registry.unregisterAgent(agentId);

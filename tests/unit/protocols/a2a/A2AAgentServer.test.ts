@@ -22,8 +22,41 @@ jest.mock('express');
 jest.mock('http');
 jest.mock('socket.io');
 jest.mock('cors');
-jest.mock('body-parser');
 jest.mock('cookie-parser');
+
+// Mock Logger
+jest.mock('../../../../logger', () => ({
+    Logger: {
+        getLogger: jest.fn(() => ({
+            child: jest.fn(() => ({
+                info: jest.fn(),
+                error: jest.fn(),
+                warn: jest.fn(),
+                debug: jest.fn(),
+                http: jest.fn(),
+                verbose: jest.fn(),
+                silly: jest.fn(),
+                setContext: jest.fn(),
+                addContext: jest.fn(),
+                getLevel: jest.fn(() => 'info'),
+                startTimer: jest.fn(() => jest.fn())
+            })),
+            info: jest.fn(),
+            error: jest.fn(),
+            warn: jest.fn(),
+            debug: jest.fn(),
+            http: jest.fn(),
+            verbose: jest.fn(),
+            silly: jest.fn(),
+            setContext: jest.fn(),
+            addContext: jest.fn(),
+            getLevel: jest.fn(() => 'info'),
+            startTimer: jest.fn(() => jest.fn())
+        }))
+    },
+    createExpressLogger: jest.fn(() => (req: any, res: any, next: any) => next()),
+    createErrorLogger: jest.fn(() => (err: any, req: any, res: any, next: any) => next(err))
+}));
 
 describe('A2AAgentServer', () => {
     let server: A2AAgentServer;
@@ -49,7 +82,7 @@ describe('A2AAgentServer', () => {
         port: 8080,
         host: 'localhost',
         enableHealthCheck: true,
-        enableMetrics: true
+        enableMetrics: true,
     };
 
     beforeEach(() => {
@@ -62,6 +95,11 @@ describe('A2AAgentServer', () => {
             post: jest.fn(),
             listen: jest.fn()
         };
+
+        // Mock express static methods for body parsing
+        // (express as any).json = jest.fn(() => 'json-middleware');
+        // (express as any).urlencoded = jest.fn(() => 'urlencoded-middleware');
+
         ((express as any).default || express as unknown as jest.Mock).mockReturnValue(mockApp);
 
         // Setup http server mock
@@ -238,7 +276,7 @@ describe('A2AAgentServer', () => {
         it('should not setup health check if disabled', () => {
             // Clear previous mock calls
             jest.clearAllMocks();
-            
+
             const configNoHealth = { ...testConfig, enableHealthCheck: false };
             const serverNoHealth = new A2AAgentServer(testAgentCard, configNoHealth);
 
@@ -520,7 +558,7 @@ describe('A2AAgentServer', () => {
         it('should reject invalid API key', async () => {
             // Clear previous mock calls
             jest.clearAllMocks();
-            
+
             const secureCard = {
                 ...testAgentCard,
                 securitySchemes: [{
@@ -571,7 +609,7 @@ describe('A2AAgentServer', () => {
 
         it('should handle streaming message request', async () => {
             await server.start();
-            
+
             // Wait for async connection
             await new Promise(resolve => setTimeout(resolve, 10));
 
@@ -617,7 +655,7 @@ describe('A2AAgentServer', () => {
 
         it('should clean up streams on disconnect', async () => {
             await server.start();
-            
+
             // Wait for async connection
             await new Promise(resolve => setTimeout(resolve, 10));
 

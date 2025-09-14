@@ -1,3 +1,4 @@
+
 /**
  * A2A Protocol Registry Service
  * Agent-to-Agent (A2A) communication RegistryService implementation.
@@ -10,6 +11,7 @@ import express, { Express, Request, Response } from 'express';
 import { createServer, Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { EventEmitter } from 'eventemitter3';
+import { Logger } from '../../../logger';
 import { v4 as uuidv4 } from 'uuid';
 import {
     AgentProfile,
@@ -27,6 +29,7 @@ export interface RegistryConfig {
 }
 
 export class RegistryService extends EventEmitter {
+    private logger: Logger;
     private agents = new Map<string, AgentProfile>();
     private httpServer: HttpServer;
     private app: Express;
@@ -38,6 +41,10 @@ export class RegistryService extends EventEmitter {
     constructor(config: RegistryConfig) {
         super();
         this.config = config;
+        this.logger = Logger.getLogger('RegistryService').child({
+            port: config.port,
+            host: config.host || 'localhost'
+        });
         this.app = express();
         this.httpServer = createServer(this.app);
         this.io = new SocketServer(this.httpServer, {
@@ -144,7 +151,7 @@ export class RegistryService extends EventEmitter {
 
     private setupWebSocketBroadcast(): void {
         this.io.on('connection', (socket) => {
-            console.log(`📡 Client connected: ${socket.id}`);
+            this.logger.info(`📡 Client connected: ${socket.id}`);
 
             // Send current topology
             socket.emit('topology', this.getTopology());
@@ -171,7 +178,7 @@ export class RegistryService extends EventEmitter {
             });
 
             socket.on('disconnect', () => {
-                console.log(`📡 Client disconnected: ${socket.id}`);
+                this.logger.info(`📡 Client disconnected: ${socket.id}`);
             });
         });
     }
@@ -199,7 +206,7 @@ export class RegistryService extends EventEmitter {
             if (now - lastSeenMs > timeout && agent.status === AgentStatus.ONLINE) {
                 agent.status = AgentStatus.OFFLINE;
                 this.emit('agent:offline', agentId);
-                console.log(`⚠️ Agent ${agentId} marked as offline`);
+                this.logger.info(`⚠️ Agent ${agentId} marked as offline`);
             }
         }
     }
@@ -220,7 +227,7 @@ export class RegistryService extends EventEmitter {
 
         for (const agentId of toRemove) {
             this.agents.delete(agentId);
-            console.log(`🗑️ Removed inactive agent: ${agentId}`);
+            this.logger.info(`🗑️ Removed inactive agent: ${agentId}`);
         }
 
         if (toRemove.length > 0) {
@@ -249,7 +256,7 @@ export class RegistryService extends EventEmitter {
         this.agents.set(profile.agentId, profile);
 
         this.emit('agent:registered', profile);
-        console.log(`✅ Registered agent: ${profile.agentId}`);
+        this.logger.info(`✅ Registered agent: ${profile.agentId}`);
 
         return { success: true };
     }
@@ -318,8 +325,8 @@ export class RegistryService extends EventEmitter {
             const host = this.config.host || '0.0.0.0';
 
             this.httpServer.listen(port, host, () => {
-                console.log(`🌐 Registry Service running on http://${host}:${port}`);
-                console.log(`📡 WebSocket available on ws://${host}:${port}`);
+                this.logger.info(`🌐 Registry Service running on http://${host}:${port}`);
+                this.logger.info(`📡 WebSocket available on ws://${host}:${port}`);
                 this.emit('started', { port, host });
                 resolve();
             });
@@ -338,7 +345,7 @@ export class RegistryService extends EventEmitter {
 
         return new Promise((resolve) => {
             this.httpServer.close(() => {
-                console.log('🛑 Registry Service stopped');
+                this.logger.info('🛑 Registry Service stopped');
                 this.emit('stopped');
                 resolve();
             });

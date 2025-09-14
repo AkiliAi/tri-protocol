@@ -1,3 +1,4 @@
+import { Logger } from '../../../logger';
 /**
  * A2A Protocol Agent Executor - PRODUCTION VERSION
  * Agent-to-Agent (A2A) communication Agent Executor implementation.
@@ -102,9 +103,14 @@ export interface IAgentExecutor {
  * Abstract base class for agent executors
  */
 export abstract class AgentExecutor implements IAgentExecutor {
+    protected logger: Logger;
     protected runningTasks = new Map<string, AbortController>();
     protected taskContexts = new Map<string, RequestContext>();
     protected taskTimeouts = new Map<string, NodeJS.Timeout>();
+    
+    constructor() {
+        this.logger = Logger.getLogger('AgentExecutor');
+    }
 
     protected metrics: ExecutionMetrics = {
         totalExecutions: 0,
@@ -153,7 +159,7 @@ export abstract class AgentExecutor implements IAgentExecutor {
             this.runningTasks.delete(taskId);
             this.taskContexts.delete(taskId);
 
-            console.log(`[AgentExecutor] Task cancelled: ${taskId}`);
+            this.logger.info(`[AgentExecutor] Task cancelled: ${taskId}`);
         } else {
             throw new Error(`Task not found or not running: ${taskId}`);
         }
@@ -225,7 +231,9 @@ export abstract class AgentExecutor implements IAgentExecutor {
         // Setup timeout if defined
         if (context.metadata?.timeout) {
             const timeout = setTimeout(() => {
-                this.cancelTask(context.taskId).catch(console.error);
+                this.cancelTask(context.taskId).catch(error => {
+                    this.logger.error('Failed to cancel task on timeout', error, { taskId: context.taskId });
+                });
             }, context.metadata.timeout);
             this.taskTimeouts.set(context.taskId, timeout);
         }

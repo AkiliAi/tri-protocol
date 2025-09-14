@@ -176,7 +176,7 @@ describe('Workflow Templates', () => {
 
       // Should have nodes for each analyst
       const analystNodes = workflow.nodes.filter(n => 
-        n.id.includes('analyst-') && n.type === 'agent'
+        n.id.includes('a2a-send-analyst-') && n.type === 'agent'
       );
       expect(analystNodes.length).toBeGreaterThanOrEqual(3);
       

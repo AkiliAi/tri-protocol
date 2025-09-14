@@ -266,10 +266,20 @@ export function createCustomResearchWorkflow(options: {
   // Add multiple analyst agents if specified
   if (options.analystAgents && options.analystAgents.length > 1) {
     // Replace single analyst with parallel analysis
-    const analyzeIndex = workflow.nodes.findIndex(n => n.id === 'a2a-send-analyst-001');
+    const analyzeIndex = workflow.nodes.findIndex(n => 
+      n.id.startsWith('a2a-send-analyst-001')
+    );
     if (analyzeIndex !== -1) {
-      // Remove old analyst nodes
-      workflow.nodes.splice(analyzeIndex, 2);
+      // Also find and remove the wait node
+      const waitIndex = workflow.nodes.findIndex(n => 
+        n.id.startsWith('a2a-wait-analyst-001')
+      );
+      
+      // Remove both analyst and wait nodes
+      if (waitIndex !== -1 && waitIndex > analyzeIndex) {
+        workflow.nodes.splice(waitIndex, 1);
+      }
+      workflow.nodes.splice(analyzeIndex, 1);
       
       // Add parallel analyst nodes
       const analystNodes = options.analystAgents.map(agentId => 

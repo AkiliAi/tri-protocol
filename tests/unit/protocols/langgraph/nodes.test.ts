@@ -12,7 +12,7 @@ describe('Workflow Nodes', () => {
           timeout: 5000
         });
 
-        expect(node.id).toBe('a2a-send-agent-123');
+        expect(node.id).toBe('a2a-send-agent-123-process-data');
         expect(node.type).toBe('agent');
         expect(node.name).toBe('Send to agent-123');
         expect(node.timeout).toBe(5000);

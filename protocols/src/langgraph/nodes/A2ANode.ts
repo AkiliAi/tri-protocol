@@ -1,3 +1,11 @@
+/**
+ *  LANGGRAPH - A2A Node
+ *  Reusable workflow nodes for agent-to-agent (A2A) communication
+ *  Second Core Protocol of the Tri Protocol
+ *
+ */
+
+
 import { WorkflowNode, WorkflowState } from '../types';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
@@ -13,8 +21,11 @@ export class A2ANode {
     task?: string;
     timeout?: number;
   }): WorkflowNode {
+    // Make ID unique by including task or message type if provided
+    const idSuffix = options?.task ? `-${options.task.replace(/[^a-z0-9]/gi, '-')}` : 
+                     options?.messageType ? `-${options.messageType.toLowerCase()}` : '';
     return {
-      id: `a2a-send-${agentId}`,
+      id: `a2a-send-${agentId}${idSuffix}`,
       type: 'agent',
       name: `Send to ${agentId}`,
       function: async (state: WorkflowState) => {
@@ -252,6 +263,120 @@ export class A2ANode {
     };
   }
   
+  // /**
+  //  * Create a node that performs load balancing across agents
+  //  */
+  // static createLoadBalancerNode(options: {
+  //   agentPool: string[];
+  //   strategy?: 'round-robin' | 'least-loaded' | 'random';
+  // }): WorkflowNode {
+  //   return {
+  //     id: 'a2a-load-balancer',
+  //     type: 'agent',
+  //     name: 'Load Balance across agents',
+  //     function: async (state: WorkflowState) => {
+  //       // Select agent based on strategy
+  //       let selectedAgent: string;
+  //       const strategy = options.strategy || 'round-robin';
+  //
+  //       switch (strategy) {
+  //         case 'round-robin':
+  //           const lastIndex = state.context?.lastAgentIndex || -1;
+  //           const nextIndex = (lastIndex + 1) % options.agentPool.length;
+  //           selectedAgent = options.agentPool[nextIndex];
+  //           break;
+  //         case 'random':
+  //           selectedAgent = options.agentPool[Math.floor(Math.random() * options.agentPool.length)];
+  //           break;
+  //         case 'least-loaded':
+  //         default:
+  //           // For now, just pick the first agent (would need load metrics in real implementation)
+  //           selectedAgent = options.agentPool[0];
+  //           break;
+  //       }
+  //
+  //       return {
+  //         context: {
+  //           ...state.context,
+  //           selectedAgent,
+  //           lastAgentIndex: options.agentPool.indexOf(selectedAgent),
+  //           loadBalancerMetadata: {
+  //             strategy,
+  //             agentPool: options.agentPool,
+  //             selectedAgent,
+  //             timestamp: new Date()
+  //           }
+  //         }
+  //       };
+  //     },
+  //     metadata: {
+  //       loadBalancer: true,
+  //       agentPool: options.agentPool,
+  //       strategy: options.strategy || 'round-robin'
+  //     }
+  //   };
+  // }
+
+
+  /**
+   * Create a node that performs load balancing across agents
+   */
+  static createLoadBalancerNode(options: {
+    agentPool: string[];
+    strategy?: 'round-robin' | 'least-loaded' | 'random' | 'weighted';
+    weights?: Record<string, number>;
+  }): WorkflowNode {
+    return {
+      id: 'a2a-load-balancer',
+      type: 'agent',
+      name: 'Load balance across agents',
+      function: async (state: WorkflowState) => {
+        const lastUsedIndex = state.context?.lastUsedAgentIndex ?? -1;
+        let selectedAgent: string;
+        let selectedIndex: number;
+
+        switch (options.strategy || 'round-robin') {
+          case 'round-robin':
+            selectedIndex = (lastUsedIndex + 1) % options.agentPool.length;
+            selectedAgent = options.agentPool[selectedIndex];
+            break;
+          case 'random':
+            selectedIndex = Math.floor(Math.random() * options.agentPool.length);
+            selectedAgent = options.agentPool[selectedIndex];
+            break;
+          case 'weighted':
+            // Simple weighted selection (could be enhanced)
+            selectedAgent = options.agentPool[0];
+            selectedIndex = 0;
+            break;
+          case 'least-loaded':
+          default:
+            // Would need load information from adapter
+            selectedAgent = options.agentPool[0];
+            selectedIndex = 0;
+        }
+
+        return {
+          context: {
+            ...state.context,
+            selectedAgent,
+            lastUsedAgentIndex: selectedIndex,
+            loadBalancing: {
+              strategy: options.strategy || 'round-robin',
+              agentPool: options.agentPool,
+              timestamp: new Date()
+            }
+          }
+        };
+      },
+      metadata: {
+        loadBalancing: true,
+        agentPool: options.agentPool,
+        strategy: options.strategy || 'round-robin'
+      }
+    };
+  }
+
   /**
    * Create a node that performs agent negotiation
    */
@@ -349,63 +474,7 @@ export class A2ANode {
       }
     };
   }
-  
-  /**
-   * Create a node that performs load balancing across agents
-   */
-  static createLoadBalancerNode(options: {
-    agentPool: string[];
-    strategy?: 'round-robin' | 'least-loaded' | 'random' | 'weighted';
-    weights?: Record<string, number>;
-  }): WorkflowNode {
-    return {
-      id: 'a2a-load-balancer',
-      type: 'agent',
-      name: 'Load balance across agents',
-      function: async (state: WorkflowState) => {
-        const lastUsedIndex = state.context?.lastUsedAgentIndex ?? -1;
-        let selectedAgent: string;
-        let selectedIndex: number;
-        
-        switch (options.strategy || 'round-robin') {
-          case 'round-robin':
-            selectedIndex = (lastUsedIndex + 1) % options.agentPool.length;
-            selectedAgent = options.agentPool[selectedIndex];
-            break;
-          case 'random':
-            selectedIndex = Math.floor(Math.random() * options.agentPool.length);
-            selectedAgent = options.agentPool[selectedIndex];
-            break;
-          case 'weighted':
-            // Simple weighted selection (could be enhanced)
-            selectedAgent = options.agentPool[0];
-            selectedIndex = 0;
-            break;
-          case 'least-loaded':
-          default:
-            // Would need load information from adapter
-            selectedAgent = options.agentPool[0];
-            selectedIndex = 0;
-        }
-        
-        return {
-          context: {
-            ...state.context,
-            selectedAgent,
-            lastUsedAgentIndex: selectedIndex,
-            loadBalancing: {
-              strategy: options.strategy || 'round-robin',
-              agentPool: options.agentPool,
-              timestamp: new Date()
-            }
-          }
-        };
-      },
-      metadata: {
-        loadBalancing: true,
-        agentPool: options.agentPool,
-        strategy: options.strategy || 'round-robin'
-      }
-    };
-  }
+
+
+
 }

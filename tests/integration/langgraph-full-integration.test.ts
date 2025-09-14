@@ -12,7 +12,6 @@ import {
   createETLWorkflow
 } from '../../protocols/src/langgraph/templates/WorkflowTemplates';
 import { Logger } from '@tri-protocol/logger';
-
 // Mock implementations
 jest.mock('../../protocols/src/a2a/A2AProtocol');
 jest.mock('../../protocols/src/mcp/MCPAdapter');
@@ -28,7 +27,17 @@ describe('LangGraph Full Integration Tests', () => {
     logger = Logger.getLogger('IntegrationTest');
     
     // Initialize mocked protocols
-    a2aProtocol = new A2AProtocol({ agentId: 'test-agent' });
+    a2aProtocol = new A2AProtocol({ 
+      agentCard: {
+        protocolVersion: '1.0.0',
+        name: 'Test Agent',
+        description: 'Test agent for integration tests',
+        url: 'http://localhost:3000',
+        preferredTransport: 'http',
+        skills: [],
+        capabilities: []
+      }
+    });
     mcpAdapter = new MCPAdapter({ enabled: true });
     
     // Mock A2A responses
@@ -45,9 +54,13 @@ describe('LangGraph Full Integration Tests', () => {
     
     // Initialize TriProtocol with all adapters
     triProtocol = new TriProtocol({
-      a2a: { enabled: true },
-      mcp: { enabled: true },
-      langgraph: { enabled: true }
+      name: 'integration-test',
+      version: '1.0.0',
+      protocols: {
+        a2a: { enabled: true },
+        mcp: { enabled: true },
+        langgraph: { enabled: true }
+      }
     });
     
     await triProtocol.initialize();
@@ -67,7 +80,43 @@ describe('LangGraph Full Integration Tests', () => {
   
   describe('Complex Workflow with All Protocols', () => {
     it('should execute workflow using A2A + MCP + LangGraph', async () => {
-      // Create a complex workflow
+      // Create nodes with stored references
+      const readNode = MCPNode.createToolNode('filesystem:read_file', {
+        path: '/test/input.json',
+        encoding: 'utf-8'
+      }, {
+        fallbackValue: { default: 'data' },
+        skipOnCircuitOpen: true
+      });
+      
+      const processNode = A2ANode.createSendMessageNode('analyst-001', {
+        messageType: 'TASK_REQUEST',
+        task: 'analyze-data',
+        timeout: 5000
+      });
+      
+      const transformNode = MCPNode.createTransformNode({
+        transformer: 'json-to-csv',
+        inputPath: 'data',
+        outputPath: 'transformed'
+      });
+      
+      const reportNode = A2ANode.createSendMessageNode('reporter-001', {
+        messageType: 'REPORT_REQUEST',
+        task: 'generate-report'
+      });
+      
+      const saveNode = MCPNode.createFileWriteNode('/test/report.md', {
+        contentFromState: 'report',
+        createDirectories: true
+      });
+      
+      const broadcastNode = A2ANode.createBroadcastNode({
+        messageType: 'REPORT_READY',
+        waitForResponses: false
+      });
+      
+      // Create workflow with proper node references
       const workflowDef: WorkflowDefinition = {
         id: 'test-complex-workflow',
         name: 'Integration Test Workflow',
@@ -78,53 +127,21 @@ describe('LangGraph Full Integration Tests', () => {
           report: { value: null }
         },
         nodes: [
-          // 1. Read file using MCP
-          MCPNode.createFileReadNode('/test/input.json', {
-            parseAs: 'json',
-            fallbackValue: { default: 'data' },
-            skipOnCircuitOpen: true
-          }),
-          
-          // 2. Process with agent using A2A
-          A2ANode.createSendMessageNode('analyst-001', {
-            messageType: 'TASK_REQUEST',
-            task: 'analyze-data',
-            timeout: 5000
-          }),
-          
-          // 3. Transform data using MCP
-          MCPNode.createTransformNode({
-            transformer: 'json-to-csv',
-            inputPath: 'data',
-            outputPath: 'transformed'
-          }),
-          
-          // 4. Generate report using another agent
-          A2ANode.createSendMessageNode('reporter-001', {
-            messageType: 'REPORT_REQUEST',
-            task: 'generate-report'
-          }),
-          
-          // 5. Save report using MCP
-          MCPNode.createFileWriteNode('/test/report.md', {
-            contentFromState: 'report',
-            createDirectories: true
-          }),
-          
-          // 6. Notify stakeholders using A2A broadcast
-          A2ANode.createBroadcastNode({
-            messageType: 'REPORT_READY',
-            waitForResponses: false
-          })
+          readNode,
+          processNode,
+          transformNode,
+          reportNode,
+          saveNode,
+          broadcastNode
         ],
         edges: [
-          { from: 'mcp-filesystem-read-file', to: 'a2a-send-analyst-001' },
-          { from: 'a2a-send-analyst-001', to: 'mcp-transform-json-to-csv' },
-          { from: 'mcp-transform-json-to-csv', to: 'a2a-send-reporter-001' },
-          { from: 'a2a-send-reporter-001', to: 'mcp-write--test-report-md' },
-          { from: 'mcp-write--test-report-md', to: 'a2a-broadcast' }
+          { from: readNode.id, to: processNode.id },
+          { from: processNode.id, to: transformNode.id },
+          { from: transformNode.id, to: reportNode.id },
+          { from: reportNode.id, to: saveNode.id },
+          { from: saveNode.id, to: broadcastNode.id }
         ],
-        entryPoint: 'mcp-filesystem-read-file',
+        entryPoint: readNode.id,
         config: {
           timeout: 60000,
           maxRetries: 2,
@@ -147,11 +164,11 @@ describe('LangGraph Full Integration Tests', () => {
       
       // Verify all protocols were used
       expect(mcpAdapter.executeTool).toHaveBeenCalledTimes(3); // read, transform, write
-      expect(a2aProtocol.sendMessage).toHaveBeenCalledTimes(3); // 2 sends + 1 broadcast
+      expect(a2aProtocol.sendMessage).toHaveBeenCalledTimes(2); // 2 sends (broadcast doesn't call sendMessage)
       
       // Verify correlation IDs were tracked
-      expect(execution.state.context).toHaveProperty('a2a-send-analyst-001_correlationId');
-      expect(execution.state.context).toHaveProperty('a2a-send-reporter-001_correlationId');
+      expect(execution.state.context).toHaveProperty(`${processNode.id}_correlationId`);
+      expect(execution.state.context).toHaveProperty(`${reportNode.id}_correlationId`);
     });
     
     it('should handle Circuit Breaker OPEN state gracefully', async () => {
@@ -160,6 +177,19 @@ describe('LangGraph Full Integration Tests', () => {
         new Error('Circuit breaker is OPEN for server: test-server')
       );
       
+      const readNode = MCPNode.createToolNode('filesystem:read_file', {
+        path: '/test/data.json',
+        encoding: 'utf-8'
+      }, {
+        fallbackValue: { fallback: 'data' },
+        skipOnCircuitOpen: true
+      });
+      
+      const processNode = A2ANode.createSendMessageNode('processor', {
+        messageType: 'PROCESS',
+        task: 'process-fallback'
+      });
+      
       const workflow: WorkflowDefinition = {
         id: 'cb-test-workflow',
         name: 'Circuit Breaker Test',
@@ -167,20 +197,11 @@ describe('LangGraph Full Integration Tests', () => {
         stateSchema: {
           data: { value: null }
         },
-        nodes: [
-          MCPNode.createFileReadNode('/test/data.json', {
-            fallbackValue: { fallback: 'data' },
-            skipOnCircuitOpen: true
-          }),
-          A2ANode.createSendMessageNode('processor', {
-            messageType: 'PROCESS',
-            task: 'process-fallback'
-          })
-        ],
+        nodes: [readNode, processNode],
         edges: [
-          { from: 'mcp-filesystem-read-file', to: 'a2a-send-processor' }
+          { from: readNode.id, to: processNode.id }
         ],
-        entryPoint: 'mcp-filesystem-read-file'
+        entryPoint: readNode.id
       };
       
       const workflowId = await langGraphAdapter.createWorkflow(workflow);
@@ -188,8 +209,8 @@ describe('LangGraph Full Integration Tests', () => {
       
       // Should complete with fallback value
       expect(execution.status).toBe('completed');
-      expect(execution.state.context?.['mcp-filesystem-read-file_skipped']).toBe(true);
-      expect(execution.state.context?.['mcp-filesystem-read-file_result']).toEqual({ fallback: 'data' });
+      expect(execution.state.context?.[`${readNode.id}_skipped`]).toBe(true);
+      expect(execution.state.context?.[`${readNode.id}_result`]).toEqual({ fallback: 'data' });
       
       // A2A should still be called with fallback data
       expect(a2aProtocol.sendMessage).toHaveBeenCalled();
@@ -301,18 +322,18 @@ describe('LangGraph Full Integration Tests', () => {
         return { result: 'success' };
       });
       
+      const testNode = MCPNode.createToolNode('test-tool', { arg: 'value' }, {
+        retryOnFailure: true
+      });
+      
       const workflow: WorkflowDefinition = {
         id: 'retry-test',
         name: 'Retry Test',
         description: 'Test retry policy',
         stateSchema: { data: { value: null } },
-        nodes: [
-          MCPNode.createToolNode('test-tool', { arg: 'value' }, {
-            retryOnFailure: true
-          })
-        ],
+        nodes: [testNode],
         edges: [],
-        entryPoint: 'mcp-test-tool'
+        entryPoint: testNode.id
       };
       
       const workflowId = await langGraphAdapter.createWorkflow(workflow);
@@ -330,18 +351,18 @@ describe('LangGraph Full Integration Tests', () => {
         data: null
       });
       
+      const asyncNode = A2ANode.createSendMessageNode('async-agent', {
+        messageType: 'ASYNC_TASK'
+      });
+      
       const workflow: WorkflowDefinition = {
         id: 'async-test',
         name: 'Async A2A Test',
         description: 'Test async message handling',
         stateSchema: { message: { value: 'test' } },
-        nodes: [
-          A2ANode.createSendMessageNode('async-agent', {
-            messageType: 'ASYNC_TASK'
-          })
-        ],
+        nodes: [asyncNode],
         edges: [],
-        entryPoint: 'a2a-send-async-agent'
+        entryPoint: asyncNode.id
       };
       
       const workflowId = await langGraphAdapter.createWorkflow(workflow);
@@ -349,27 +370,27 @@ describe('LangGraph Full Integration Tests', () => {
       
       // Check correlation ID was tracked
       expect(execution.state.context?.pendingA2AMessages).toBeDefined();
-      expect(execution.state.context?.['a2a-send-async-agent_correlationId']).toBe('test-correlation-123');
+      expect(execution.state.context?.[`${asyncNode.id}_correlationId`]).toBe('test-correlation-123');
     });
   });
   
   describe('Performance and Monitoring', () => {
     it('should track execution metrics', async () => {
+      const tool1Node = MCPNode.createToolNode('tool1', {});
+      const agentNode = A2ANode.createSendMessageNode('agent1');
+      const tool2Node = MCPNode.createToolNode('tool2', {});
+      
       const workflow: WorkflowDefinition = {
         id: 'metrics-test',
         name: 'Metrics Test',
         description: 'Test metrics collection',
         stateSchema: { data: { value: null } },
-        nodes: [
-          MCPNode.createToolNode('tool1', {}),
-          A2ANode.createSendMessageNode('agent1'),
-          MCPNode.createToolNode('tool2', {})
-        ],
+        nodes: [tool1Node, agentNode, tool2Node],
         edges: [
-          { from: 'mcp-tool1', to: 'a2a-send-agent1' },
-          { from: 'a2a-send-agent1', to: 'mcp-tool2' }
+          { from: tool1Node.id, to: agentNode.id },
+          { from: agentNode.id, to: tool2Node.id }
         ],
-        entryPoint: 'mcp-tool1'
+        entryPoint: tool1Node.id
       };
       
       const workflowId = await langGraphAdapter.createWorkflow(workflow);
@@ -382,9 +403,9 @@ describe('LangGraph Full Integration Tests', () => {
       
       // Check execution history
       expect(execution.state.history).toHaveLength(3);
-      expect(execution.state.history![0].nodeId).toBe('mcp-tool1');
-      expect(execution.state.history![1].nodeId).toBe('a2a-send-agent1');
-      expect(execution.state.history![2].nodeId).toBe('mcp-tool2');
+      expect(execution.state.history![0].nodeId).toBe(tool1Node.id);
+      expect(execution.state.history![1].nodeId).toBe(agentNode.id);
+      expect(execution.state.history![2].nodeId).toBe(tool2Node.id);
     });
     
     it('should emit events for monitoring', async () => {
@@ -394,16 +415,16 @@ describe('LangGraph Full Integration Tests', () => {
       langGraphAdapter.on('node:executed', (event) => events.push(event));
       langGraphAdapter.on('workflow:completed', (event) => events.push(event));
       
+      const testNode = MCPNode.createToolNode('test-tool', {});
+      
       const workflow: WorkflowDefinition = {
         id: 'events-test',
         name: 'Events Test',
         description: 'Test event emission',
         stateSchema: { data: { value: null } },
-        nodes: [
-          MCPNode.createToolNode('test-tool', {})
-        ],
+        nodes: [testNode],
         edges: [],
-        entryPoint: 'mcp-test-tool'
+        entryPoint: testNode.id
       };
       
       const workflowId = await langGraphAdapter.createWorkflow(workflow);

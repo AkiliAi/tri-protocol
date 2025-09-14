@@ -287,5 +287,6 @@ export class HybridDiscovery extends EventEmitter {
 
         this.discoveredAgents.clear();
         this.emit('shutdown');
+        this.logger.info('🔌 Discovery service shut down');
     }
 }

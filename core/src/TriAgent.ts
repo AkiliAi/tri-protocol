@@ -29,6 +29,9 @@ import type {
     ResourceReadResponse,
     AgentMCPCapabilities
 } from '../../protocols/src/mcp';
+import { LLMService } from './services/llm/LLMService';
+import { ReasoningEngine } from './services/llm/ReasoningEngine';
+import type { LLMConfig, ChatMessage, CompletionOptions } from './services/llm/types';
 
 export interface TriAgentConfig {
     id: string;
@@ -40,6 +43,9 @@ export interface TriAgentConfig {
     metadata?: Record<string, any>;
     enableMCP?: boolean;
     mcpConfig?: Partial<MCPConfig>;
+    enableLLM?: boolean;
+    llmConfig?: Partial<LLMConfig>;
+    llmService?: LLMService; // Optional: use existing service
 }
 
 export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilities {
@@ -49,6 +55,8 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
     protected profile?: AgentProfile;
     protected logger: Logger;
     public mcpManager?: MCPClientManager;
+    protected llm?: LLMService;
+    protected reasoning?: ReasoningEngine;
 
     constructor(config: TriAgentConfig) {
         super();
@@ -60,6 +68,75 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
             this.mcpManager = new MCPClientManager(config.mcpConfig || {});
             this.setupMCPEventHandlers();
             this.logger.info('MCP support enabled for agent', { agentId: config.id });
+        }
+        
+        // Initialize LLM if enabled
+        if (config.enableLLM) {
+            this.initializeLLM(config);
+        }
+    }
+    
+    /**
+     * Initialize LLM service for the agent
+     */
+    private initializeLLM(config: TriAgentConfig): void {
+        // Use provided service or create new one
+        if (config.llmService) {
+            this.llm = config.llmService;
+        } else {
+            // Create default LLM service configuration
+            const defaultLLMConfig: LLMConfig = {
+                providers: [
+                    { type: 'ollama', enabled: true, priority: 1 },
+                    { type: 'openai', enabled: !!process.env.OPENAI_API_KEY, priority: 2, apiKey: process.env.OPENAI_API_KEY },
+                    { type: 'anthropic', enabled: !!process.env.ANTHROPIC_API_KEY, priority: 3, apiKey: process.env.ANTHROPIC_API_KEY }
+                ],
+                defaultProvider: 'ollama',
+                enableCache: true,
+                fallbackStrategy: 'cascade',
+                ...config.llmConfig
+            };
+            
+            this.llm = new LLMService(defaultLLMConfig);
+        }
+        
+        // Initialize reasoning engine
+        this.reasoning = new ReasoningEngine(this.llm);
+        
+        // Setup LLM event handlers
+        this.setupLLMEventHandlers();
+        
+        this.logger.info('LLM support enabled for agent', { 
+            agentId: config.id,
+            defaultProvider: this.llm.getStatus().defaultProvider 
+        });
+    }
+    
+    /**
+     * Setup LLM event handlers
+     */
+    private setupLLMEventHandlers(): void {
+        if (!this.llm) return;
+        
+        this.llm.on('cache:hit', (data) => {
+            this.logger.debug('LLM cache hit', data);
+            this.emit('llm:cache:hit', data);
+        });
+        
+        this.llm.on('metric', (metric) => {
+            this.emit('llm:metric', metric);
+        });
+        
+        if (this.reasoning) {
+            this.reasoning.on('reasoning:step', (step) => {
+                this.logger.debug('Reasoning step', step);
+                this.emit('reasoning:step', step);
+            });
+            
+            this.reasoning.on('reasoning:complete', (chain) => {
+                this.logger.info('Reasoning complete', { confidence: chain.confidence });
+                this.emit('reasoning:complete', chain);
+            });
         }
     }
 
@@ -159,6 +236,194 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
      * @returns Selected tool name or null
      */
     protected selectTool?(tools: MCPToolDescription[], context?: any): string | null;
+    
+    /**
+     * Abstract method to get the system prompt for this agent
+     * Used when the agent needs to respond using LLM
+     */
+    protected abstract getSystemPrompt(): string;
+
+    // === LLM Cognitive Methods ===
+    
+    /**
+     * Think about a context and decide what to do
+     */
+    async think(context: any): Promise<string> {
+        if (!this.llm) {
+            throw new Error('LLM is not enabled for this agent');
+        }
+        
+        const prompt = `Given this context, analyze and decide what action to take:
+        
+Context: ${JSON.stringify(context, null, 2)}
+
+Consider:
+1. What is the current situation?
+2. What are the available options?
+3. What is the best course of action?
+4. Why is this the best choice?`;
+        
+        const response = await this.llm.complete(prompt, {
+            temperature: 0.7,
+            systemPrompt: this.getSystemPrompt()
+        });
+        
+        return response.content;
+    }
+    
+    /**
+     * Respond to user input using LLM
+     */
+    async respond(input: string, context?: any): Promise<string> {
+        if (!this.llm) {
+            throw new Error('LLM is not enabled for this agent');
+        }
+        
+        const messages: ChatMessage[] = [
+            { role: 'system', content: this.getSystemPrompt() }
+        ];
+        
+        if (context) {
+            messages.push({ 
+                role: 'system', 
+                content: `Current context: ${JSON.stringify(context)}` 
+            });
+        }
+        
+        messages.push({ role: 'user', content: input });
+        
+        const response = await this.llm.chat(messages);
+        return response.content;
+    }
+    
+    /**
+     * Reason about a complex problem
+     */
+    async reason(problem: string): Promise<any> {
+        if (!this.reasoning) {
+            throw new Error('Reasoning engine is not available');
+        }
+        
+        const chain = await this.reasoning.reason(problem);
+        return chain;
+    }
+    
+    /**
+     * Solve a problem step by step
+     */
+    async solveProblem(problem: string, constraints?: string[]): Promise<string> {
+        if (!this.reasoning) {
+            throw new Error('Reasoning engine is not available');
+        }
+        
+        return this.reasoning.solveProblem(problem, constraints);
+    }
+    
+    /**
+     * Reflect on actions and outcomes
+     */
+    async reflect(action: string, outcome: string): Promise<string> {
+        if (!this.reasoning) {
+            throw new Error('Reasoning engine is not available');
+        }
+        
+        return this.reasoning.reflect(action, outcome);
+    }
+    
+    /**
+     * Analyze data and extract insights
+     */
+    async analyze(data: any, query?: string): Promise<string> {
+        if (!this.llm) {
+            throw new Error('LLM is not enabled for this agent');
+        }
+        
+        const prompt = `Analyze this data and provide insights:
+        
+Data: ${JSON.stringify(data, null, 2)}
+${query ? `\nSpecific Query: ${query}` : ''}
+
+Provide:
+1. Key observations
+2. Patterns or trends
+3. Anomalies or concerns
+4. Recommendations`;
+        
+        const response = await this.llm.complete(prompt, {
+            temperature: 0.5,
+            systemPrompt: this.getSystemPrompt()
+        });
+        
+        return response.content;
+    }
+    
+    /**
+     * Generate creative content
+     */
+    async generate(prompt: string, options?: CompletionOptions): Promise<string> {
+        if (!this.llm) {
+            throw new Error('LLM is not enabled for this agent');
+        }
+        
+        const response = await this.llm.complete(prompt, {
+            temperature: 0.8,
+            ...options,
+            systemPrompt: options?.systemPrompt || this.getSystemPrompt()
+        });
+        
+        return response.content;
+    }
+    
+    /**
+     * Summarize text or data
+     */
+    async summarize(content: string, maxLength?: number): Promise<string> {
+        if (!this.llm) {
+            throw new Error('LLM is not enabled for this agent');
+        }
+        
+        const prompt = `Summarize the following content${maxLength ? ` in approximately ${maxLength} words` : ''}:
+
+${content}
+
+Provide a clear, concise summary that captures the main points.`;
+        
+        const response = await this.llm.complete(prompt, {
+            temperature: 0.3,
+            maxTokens: maxLength ? Math.ceil(maxLength * 1.5) : undefined
+        });
+        
+        return response.content;
+    }
+    
+    /**
+     * Check if LLM is enabled for this agent
+     */
+    isLLMEnabled(): boolean {
+        return this.config.enableLLM === true && this.llm !== undefined;
+    }
+    
+    /**
+     * Get LLM service status
+     */
+    getLLMStatus(): any {
+        if (!this.llm) {
+            return null;
+        }
+        
+        return this.llm.getStatus();
+    }
+    
+    /**
+     * Get LLM metrics
+     */
+    getLLMMetrics(): any {
+        if (!this.llm) {
+            return null;
+        }
+        
+        return this.llm.getMetrics().getSummary();
+    }
 
     // === Helper Methods ===
 

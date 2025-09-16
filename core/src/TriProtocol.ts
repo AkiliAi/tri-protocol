@@ -1,17 +1,18 @@
 // core/src/TriProtocol.ts
 import { EventEmitter } from 'eventemitter3';
-import { A2AProtocol } from '@protocols/a2a';
+import { A2AProtocol } from '../../protocols/src/a2a';
 import {
     AgentCard,
     AgentProfile,
     Message,
     Task,
     A2AMessage
-} from '@protocols/a2a';
-import { LangGraphAdapter } from '@protocols/langgraph';
-import { MCPAdapter } from '@protocols/mcp';
-import type { WorkflowDefinition, WorkflowExecution } from '@protocols/langgraph';
+} from '../../protocols/src/a2a';
+import { LangGraphAdapter } from '../../protocols/src/langgraph';
+import { MCPAdapter } from '../../protocols/src/mcp';
+import type { WorkflowDefinition, WorkflowExecution } from '../../protocols/src/langgraph';
 import { Logger } from '../../logger';
+import { TriRegistry } from './TriRegistry';
 export interface TriProtocolConfig {
     name: string;
     version: string;
@@ -42,11 +43,14 @@ export class TriProtocol extends EventEmitter {
     private adapters = new Map<string, any>();
     private isInitialized = false;
     private logger: Logger;
+    private registry: TriRegistry;
 
-    constructor(config: TriProtocolConfig) {
+    constructor(config: TriProtocolConfig, registry?: TriRegistry) {
         super();
         this.config = config;
         this.logger = Logger.getLogger('TriProtocol');
+        this.registry = registry || new TriRegistry();
+        this.setupRegistryHandlers();
     }
 
     async initialize(): Promise<void> {
@@ -186,36 +190,270 @@ export class TriProtocol extends EventEmitter {
     }
 
     private setupCrossProtocolBridge(): void {
-        // Bridge capabilities between protocols
+        this.logger.info('Setting up cross-protocol bridge');
+
+        // === A2A → MCP Bridge: Allow agents to use tools ===
+        if (this.a2aProtocol) {
+            this.a2aProtocol.on('agent:needs:tool', async (event: any) => {
+                const { agentId, toolName, args, correlationId } = event;
+                this.logger.debug('Agent requesting tool', { agentId, toolName });
+
+                if (this.mcpAdapter) {
+                    try {
+                        const result = await this.mcpAdapter.executeTool({
+                            toolName,
+                            arguments: args
+                        });
+
+                        // Send result back to agent
+                        if (this.a2aProtocol) {
+                            this.a2aProtocol.emit('tool:result', {
+                                agentId,
+                                correlationId,
+                                toolName,
+                                result,
+                                success: true
+                            });
+                        }
+
+                        this.emit('tri:cross:a2a:mcp:success', { agentId, toolName, result });
+                    } catch (error) {
+                        this.logger.error('Tool execution failed for agent', error, { agentId, toolName });
+
+                        if (this.a2aProtocol) {
+                            this.a2aProtocol.emit('tool:error', {
+                                agentId,
+                                correlationId,
+                                toolName,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                        }
+
+                        this.emit('tri:cross:a2a:mcp:error', { agentId, toolName, error });
+                    }
+                } else {
+                    this.logger.warn('MCP not available for agent tool request', { agentId, toolName });
+                }
+            });
+        }
+
+        // === LangGraph → A2A Bridge: Workflows can communicate with agents ===
+        if (this.langGraphAdapter) {
+            this.langGraphAdapter.on('workflow:needs:agent', async (event: any) => {
+                const { workflowId, nodeId, agentCapability, message, agentId } = event;
+                this.logger.debug('Workflow requesting agent', { workflowId, agentCapability, agentId });
+
+                if (this.a2aProtocol) {
+                    try {
+                        let targetAgent = agentId;
+
+                        // Find agent by capability if not specified
+                        if (!targetAgent && agentCapability) {
+                            const agents = await this.a2aProtocol.findAgentsByCapability(agentCapability);
+                            if (agents.length > 0) {
+                                // Select best agent (simple: first one)
+                                targetAgent = agents[0].agentId;
+                            }
+                        }
+
+                        if (targetAgent) {
+                            const result = await this.a2aProtocol.sendMessage(
+                                targetAgent,
+                                {
+                                    role: 'user' as const,
+                                    parts: [{ kind: 'text' as const, text: message }],
+                                    messageId: `workflow-${workflowId}-${nodeId}`,
+                                    kind: 'request' as any
+                                }
+                            );
+
+                            // Send result back to workflow
+                            if (this.langGraphAdapter) {
+                                this.langGraphAdapter.emit('agent:response', {
+                                    workflowId,
+                                    nodeId,
+                                    agentId: targetAgent,
+                                    result
+                                });
+                            }
+
+                            this.emit('tri:cross:langgraph:a2a:success', { workflowId, agentId: targetAgent });
+                        } else {
+                            throw new Error(`No agent found with capability: ${agentCapability}`);
+                        }
+                    } catch (error) {
+                        this.logger.error('Agent communication failed for workflow', error, { workflowId });
+
+                        if (this.langGraphAdapter) {
+                            this.langGraphAdapter.emit('agent:error', {
+                                workflowId,
+                                nodeId,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                        }
+
+                        this.emit('tri:cross:langgraph:a2a:error', { workflowId, error });
+                    }
+                } else {
+                    this.logger.warn('A2A not available for workflow agent request', { workflowId });
+                }
+            });
+
+            // === LangGraph → MCP Bridge: Workflows can use tools ===
+            this.langGraphAdapter.on('workflow:needs:tool', async (event: any) => {
+                const { workflowId, nodeId, toolName, args } = event;
+                this.logger.debug('Workflow requesting tool', { workflowId, toolName });
+
+                if (this.mcpAdapter) {
+                    try {
+                        const result = await this.mcpAdapter.executeTool({
+                            toolName,
+                            arguments: args
+                        });
+
+                        // Send result back to workflow
+                        if (this.langGraphAdapter) {
+                            this.langGraphAdapter.emit('tool:result', {
+                                workflowId,
+                                nodeId,
+                                toolName,
+                                result,
+                                success: true
+                            });
+                        }
+
+                        this.emit('tri:cross:langgraph:mcp:success', { workflowId, toolName, result });
+                    } catch (error) {
+                        this.logger.error('Tool execution failed for workflow', error, { workflowId, toolName });
+
+                        if (this.langGraphAdapter) {
+                            this.langGraphAdapter.emit('tool:error', {
+                                workflowId,
+                                nodeId,
+                                toolName,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                        }
+
+                        this.emit('tri:cross:langgraph:mcp:error', { workflowId, toolName, error });
+                    }
+                } else {
+                    this.logger.warn('MCP not available for workflow tool request', { workflowId, toolName });
+                }
+            });
+        }
+
+        // === MCP → A2A Bridge: Tool results can be shared with agents ===
+        if (this.mcpAdapter) {
+            this.mcpAdapter.on('tool:completed', async (event: any) => {
+                const { requestedBy, toolName, result } = event;
+
+                // Check if requested by an agent
+                if (requestedBy?.startsWith('agent:')) {
+                    const agentId = requestedBy.replace('agent:', '');
+                    this.logger.debug('Notifying agent of tool completion', { agentId, toolName });
+
+                    if (this.a2aProtocol) {
+                        try {
+                            // Find agent and notify
+                            const agents = await this.a2aProtocol.getRegisteredAgents();
+                            const agent = agents.find((a: any) => a.agentId === agentId);
+
+                            if (agent) {
+                                await this.a2aProtocol.sendMessage(
+                                    agentId,
+                                    {
+                                        role: 'agent' as const,
+                                        parts: [{
+                                            kind: 'text' as const,
+                                            text: `Tool ${toolName} completed with result: ${JSON.stringify(result)}`
+                                        }],
+                                        messageId: `tool-result-${Date.now()}`,
+                                        kind: 'notification' as any
+                                    }
+                                );
+
+                                this.emit('tri:cross:mcp:a2a:success', { agentId, toolName });
+                            }
+                        } catch (error) {
+                            this.logger.error('Failed to notify agent of tool result', error, { agentId, toolName });
+                            this.emit('tri:cross:mcp:a2a:error', { agentId, toolName, error });
+                        }
+                    }
+                }
+
+                // Check if requested by a workflow
+                if (requestedBy?.startsWith('workflow:')) {
+                    const workflowId = requestedBy.replace('workflow:', '');
+                    this.logger.debug('Tool completed for workflow', { workflowId, toolName });
+
+                    if (this.langGraphAdapter) {
+                        this.langGraphAdapter.emit('external:tool:completed', {
+                            workflowId,
+                            toolName,
+                            result
+                        });
+                    }
+                }
+            });
+        }
+
+        // === Capability Discovery Bridge ===
         this.on('tri:a2a:capability:discovered', async (capability) => {
-            // When A2A discovers a capability, it can be exposed to MCP
+            // When A2A discovers a capability, make it available to all protocols
             this.emit('tri:capability:available', {
                 protocol: 'a2a',
                 capability
             });
-        });
 
-        // Bridge LangGraph workflows with A2A agents
-        this.on('tri:langgraph:workflow:step', async (step) => {
-            if (step.requiresAgent && this.a2aProtocol) {
-                const agents = await this.a2aProtocol.findAgentsByCapability(step.capability);
-                // Route workflow step to appropriate agent
-                if (agents.length > 0 && this.langGraphAdapter) {
-                    // LangGraph can now use these agents
-                    this.emit('tri:agents:available', { step, agents });
-                }
-            }
-        });
-
-        // Bridge MCP tools with LangGraph workflows
-        this.on('tri:langgraph:tool:required', async (toolRequest) => {
-            if (this.mcpAdapter) {
-                const result = await this.mcpAdapter.executeTool({
-                    toolName: toolRequest.tool,
-                    arguments: toolRequest.args
+            // Notify LangGraph about new capabilities
+            if (this.langGraphAdapter) {
+                this.langGraphAdapter.emit('capability:discovered', {
+                    source: 'a2a',
+                    capability
                 });
-                this.emit('tri:tool:result', { request: toolRequest, result });
             }
+        });
+
+        // === Status Synchronization ===
+        // Sync agent status across protocols
+        if (this.a2aProtocol) {
+            this.a2aProtocol.on('agent:status:changed', (event: any) => {
+                const { agentId, status } = event;
+
+                // Notify other protocols
+                this.emit('tri:agent:status:changed', { agentId, status });
+
+                // Update any running workflows
+                if (this.langGraphAdapter) {
+                    this.langGraphAdapter.emit('agent:status:changed', { agentId, status });
+                }
+            });
+        }
+
+        this.logger.info('Cross-protocol bridge setup complete');
+    }
+
+    private setupRegistryHandlers(): void {
+        // Auto-register A2A agents with registry
+        this.on('tri:a2a:agent:registered', (agent: AgentProfile) => {
+            this.registry.register('a2a', agent);
+            this.logger.debug('Agent registered in registry', { agentId: agent.agentId });
+        });
+
+        // Auto-unregister A2A agents from registry
+        this.on('tri:a2a:agent:unregistered', (agentId: string) => {
+            this.registry.unregister(agentId);
+            this.logger.debug('Agent unregistered from registry', { agentId });
+        });
+
+        // Registry events
+        this.registry.on('agent:registered', (entry) => {
+            this.emit('tri:registry:agent:registered', entry);
+        });
+
+        this.registry.on('agent:unregistered', (agentId) => {
+            this.emit('tri:registry:agent:unregistered', agentId);
         });
     }
 
@@ -330,6 +568,10 @@ export class TriProtocol extends EventEmitter {
 
     getMCP(): MCPAdapter | undefined {
         return this.mcpAdapter;
+    }
+
+    getRegistry(): TriRegistry {
+        return this.registry;
     }
 
     // === Status and Monitoring ===

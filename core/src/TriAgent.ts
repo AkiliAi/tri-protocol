@@ -172,16 +172,30 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
         }
         this.status = AgentStatus.ONLINE;
 
+        // Auto-register with registry if available
+        const registry = triProtocol.getRegistry();
+        if (registry && this.profile) {
+            registry.register('a2a', this.profile);
+            this.logger.info('Agent auto-registered with TriRegistry', { agentId: this.config.id });
+        }
+
         // Setup event handlers
         this.setupEventHandlers();
 
-        console.log(`✅ Agent ${this.config.name} connected to Tri-Protocol`);
+        this.logger.info(`✅ Agent ${this.config.name} connected to Tri-Protocol`);
         this.emit('connected', this.profile);
     }
 
     async disconnect(): Promise<void> {
         if (this.triProtocol && this.profile) {
             await this.triProtocol.unregisterAgent(this.config.id);
+
+            // Auto-unregister from registry if available
+            const registry = this.triProtocol.getRegistry();
+            if (registry) {
+                registry.unregister(this.config.id);
+                this.logger.info('Agent auto-unregistered from TriRegistry', { agentId: this.config.id });
+            }
         }
 
         // Disconnect all MCP servers if enabled
@@ -192,7 +206,7 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
         this.status = AgentStatus.OFFLINE;
         this.removeAllListeners();
 
-        console.log(`🛑 Agent ${this.config.name} disconnected`);
+        this.logger.info(`🛑 Agent ${this.config.name} disconnected`);
         this.emit('disconnected');
     }
 

@@ -4,6 +4,7 @@ import { WorkflowNode, WorkflowState } from '../types';
  * MCPNode - Reusable workflow nodes for MCP tool execution
  */
 export class MCPNode {
+  private static nodeCounter = 0;
   /**
    * Create a node that executes a specific MCP tool
    */
@@ -14,8 +15,9 @@ export class MCPNode {
     fallbackValue?: any;
     skipOnCircuitOpen?: boolean;
   }): WorkflowNode {
+    const nodeId = `mcp-${tool.replace(/[^a-zA-Z0-9]/g, '-')}-${++this.nodeCounter}`;
     return {
-      id: `mcp-${tool.replace(/[^a-zA-Z0-9]/g, '-')}`,
+      id: nodeId,
       type: 'tool',
       name: `Execute ${tool}`,
       function: async (state: WorkflowState) => {
@@ -81,7 +83,7 @@ export class MCPNode {
     createDirectories?: boolean;
   }): WorkflowNode {
     return {
-      id: `mcp-write-${path.replace(/[^a-zA-Z0-9]/g, '-')}`,
+      id: `mcp-write-${path.replace(/[^a-zA-Z0-9]/g, '-')}-${++this.nodeCounter}`,
       type: 'tool',
       name: `Write to ${path}`,
       function: async (state: WorkflowState) => {

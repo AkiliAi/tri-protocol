@@ -18,6 +18,7 @@ import {
     A2AMessageType
 } from '../../protocols/src/a2a/types';
 import { v4 as uuidv4 } from 'uuid';
+
 import { Logger } from '../../logger';
 import { MCPClientManager } from '../../protocols/src/mcp';
 import type {
@@ -202,6 +203,8 @@ export abstract class TriAgent extends EventEmitter implements AgentMCPCapabilit
         if (this.mcpManager) {
             await this.mcpManager.disconnectAll();
         }
+
+        this.emit('disconnected');
 
         this.status = AgentStatus.OFFLINE;
         this.removeAllListeners();

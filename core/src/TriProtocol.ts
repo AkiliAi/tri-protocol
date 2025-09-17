@@ -11,6 +11,7 @@ import {
 import { LangGraphAdapter } from '../../protocols/src/langgraph';
 import { MCPAdapter } from '../../protocols/src/mcp';
 import type { WorkflowDefinition, WorkflowExecution } from '../../protocols/src/langgraph';
+
 import { Logger } from '../../logger';
 import { TriRegistry } from './TriRegistry';
 export interface TriProtocolConfig {
@@ -618,6 +619,11 @@ export class TriProtocol extends EventEmitter {
         this.adapters.clear();
         this.removeAllListeners();
         this.isInitialized = false;
+
+        // Clear adapter references
+        this.a2aProtocol = undefined;
+        this.langGraphAdapter = undefined;
+        this.mcpAdapter = undefined;
 
         this.logger.info('Tri-Protocol shutdown complete');
     }

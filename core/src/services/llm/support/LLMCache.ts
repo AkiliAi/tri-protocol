@@ -5,6 +5,7 @@
 
 import * as crypto from 'crypto';
 import { EventEmitter } from 'eventemitter3';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 import {
   LLMResponse,

@@ -4,6 +4,7 @@ import { IDocumentAdapter } from '../interfaces/IDocumentAdapter';
 import { IVectorAdapter } from '../interfaces/IVectorAdapter';
 import { IRelationalAdapter } from '../interfaces/IRelationalAdapter';
 import { RoutingRule } from '../PersistenceManager';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 
 export interface HybridSearchQuery {

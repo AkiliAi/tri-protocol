@@ -3,6 +3,7 @@ import { ICacheAdapter } from '../interfaces/ICacheAdapter';
 import { IDocumentAdapter } from '../interfaces/IDocumentAdapter';
 import { IVectorAdapter } from '../interfaces/IVectorAdapter';
 import { IRelationalAdapter } from '../interfaces/IRelationalAdapter';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 
 export class DistributedStrategy implements IPersistenceStrategy {

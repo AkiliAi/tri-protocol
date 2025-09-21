@@ -28,7 +28,7 @@
     "test:mcp": "ts-node scripts/test-mcp.ts",
     "test:mcp:real": "ts-node scripts/test-mcp.ts --real",
     "test:mcp:all": "jest tests/unit/protocols/mcp/*.test.ts",
-    "test:mcp:integration": "jest tests/integration/mcp-a2a-integration.test.ts",
+    "test:integration:all": "jest tests/integration/*.test.ts",
     "test:langgraph:all": "jest tests/unit/protocols/langgraph/*.test.ts",
     "test:protocols:all": "jest tests/unit/protocols/**/*.test.ts",
     "test:core:all": "jest tests/unit/core/*.test.ts",

@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import { PersistenceManager, PersistenceConfig } from '../core/src/persistence/PersistenceManager';
 import { HealthCheckService } from '../core/src/services/health/HealthCheckService';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 
 // Load environment variables
@@ -27,7 +28,7 @@ async function main() {
                 database: process.env.POSTGRES_DB || 'triprotocol'
             },
             mongodb: {
-                uri: process.env.MONGODB_URI || 'mongodb://admin:admin123@localhost:27017/triprotocol?authSource=admin'
+                uri: process.env.MONGODB_URI || 'mongodb://triprotocol:triprotocol123@localhost:27017/triprotocol?authSource=triprotocol'
             },
             qdrant: {
                 url: process.env.QDRANT_URL || 'http://localhost:6333'
@@ -71,7 +72,7 @@ async function main() {
         },
 
         mongodb: {
-            uri: process.env.MONGODB_URI || 'mongodb://admin:admin123@localhost:27017/triprotocol?authSource=admin',
+            uri: process.env.MONGODB_URI || 'mongodb://triprotocol:triprotocol123@localhost:27017/triprotocol?authSource=triprotocol',
             database: 'triprotocol'
         },
 

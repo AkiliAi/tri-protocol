@@ -1,4 +1,4 @@
-import { Logger } from '../../../logger';
+
 /**
  * Agent Registry - A2A Protocol Discovery System
  * Manages agent registration, discovery, and capability matching
@@ -6,11 +6,10 @@ import { Logger } from '../../../logger';
  */
 
 
-
-
-
 // protocols/src/a2a/A2AAgentRegistry.ts
 import { EventEmitter } from 'eventemitter3';
+
+import { Logger } from '../../../logger';
 import { v4 as uuidv4 } from 'uuid';
 import {
     AgentProfile,

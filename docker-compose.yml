@@ -1,0 +1,138 @@
+version: '3.8'
+
+services:
+  # Redis - Cache and Pub/Sub
+  redis:
+    image: redis:7-alpine
+    container_name: triprotocol-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - triprotocol-network
+
+  # PostgreSQL with pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: triprotocol-postgres
+    environment:
+      POSTGRES_DB: triprotocol
+      POSTGRES_USER: triprotocol
+      POSTGRES_PASSWORD: triprotocol123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./scripts/postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triprotocol"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - triprotocol-network
+
+  # MongoDB
+  mongodb:
+    image: mongo:7
+    container_name: triprotocol-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: triprotocol
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+      - ./scripts/mongodb-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - triprotocol-network
+
+  # Qdrant - Vector Database
+  qdrant:
+    image: qdrant/qdrant
+    container_name: triprotocol-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - triprotocol-network
+
+  # Optional: RedisInsight for Redis GUI
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: triprotocol-redis-insight
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis-insight-data:/db
+    networks:
+      - triprotocol-network
+    depends_on:
+      - redis
+
+  # Optional: pgAdmin for PostgreSQL GUI
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: triprotocol-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@triprotocol.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - triprotocol-network
+    depends_on:
+      - postgres
+
+  # Optional: Mongo Express for MongoDB GUI
+  mongo-express:
+    image: mongo-express
+    container_name: triprotocol-mongo-express
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    ports:
+      - "8081:8081"
+    networks:
+      - triprotocol-network
+    depends_on:
+      - mongodb
+
+volumes:
+  redis-data:
+  postgres-data:
+  mongodb-data:
+  qdrant-data:
+  redis-insight-data:
+  pgadmin-data:
+
+networks:
+  triprotocol-network:
+    driver: bridge

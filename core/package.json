@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -b",
+    "build": "npm run clean && tsc -b",
     "clean": "rm -rf dist *.tsbuildinfo",
     "test": "jest",
     "lint": "eslint src --ext .ts",

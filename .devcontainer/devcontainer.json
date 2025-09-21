@@ -11,6 +11,13 @@
       "username": "vscode",
       "uid": "1000",
       "gid": "1000"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": true,
+      "azureDnsAutoDetection": true,
+      "installDockerBuildx": true,
+      "installDockerComposeSwitch": true,
+      "version": "latest"
     }
   },
   "customizations": {
@@ -19,7 +26,8 @@
         "ms-vscode.vscode-typescript-next",
         "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss",
-        "ms-vscode.vscode-json"
+        "ms-vscode.vscode-json",
+        "ms-azuretools.vscode-docker",
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "zsh"
@@ -29,6 +37,8 @@
   "forwardPorts": [3000, 8080],
   "postCreateCommand": "npm install",
   "remoteUser": "vscode",
+  "privileged": true,
+  "init": true,
   "mounts": [
     "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
   ]

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'eventemitter3';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 
 export interface EmbeddingConfig {

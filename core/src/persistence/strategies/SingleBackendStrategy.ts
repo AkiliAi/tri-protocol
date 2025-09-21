@@ -1,4 +1,5 @@
 import { EntityType, IPersistenceStrategy, SearchResult } from '../interfaces/IPersistenceAdapter';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 
 export class SingleBackendStrategy implements IPersistenceStrategy {

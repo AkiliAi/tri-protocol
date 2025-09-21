@@ -1,4 +1,5 @@
 import { EventEmitter } from 'eventemitter3';
+// @ts-ignore
 import { Logger } from '@tri-protocol/logger';
 import Redis from 'ioredis';
 import { Pool } from 'pg';
@@ -269,8 +270,10 @@ export class HealthCheckService extends EventEmitter {
             });
 
             await client.connect();
-            const admin = client.db().admin();
-            const info = await admin.serverStatus();
+            // Use ping instead of serverStatus to avoid auth issues
+            // const admin = client.db().admin();
+            // const info = await admin.serverStatus();
+            const result = await client.db('triprotocol').command({ ping: 1 });
             await client.close();
 
             const latency = Date.now() - startTime;
@@ -278,12 +281,11 @@ export class HealthCheckService extends EventEmitter {
             return {
                 name: 'MongoDB',
                 status: 'healthy',
-                message: `MongoDB ${info.version} is responding`,
+                message: `MongoDB is responding`,
                 latency,
                 lastCheck: new Date(),
                 metadata: {
-                    version: info.version,
-                    storageEngine: info.storageEngine?.name
+                    ping: result.ok
                 }
             };
 

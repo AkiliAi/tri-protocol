@@ -22,7 +22,7 @@ export class PostgresAdapter implements IRelationalAdapter {
             database: config.database,
             max: config.max || 20,
             idleTimeoutMillis: config.idleTimeoutMillis || 30000,
-            connectionTimeoutMillis: config.connectionTimeoutMillis || 2000,
+            connectionTimeoutMillis: config.connectionTimeoutMillis || 10000,
             ssl: config.ssl
         });
 

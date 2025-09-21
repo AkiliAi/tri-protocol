@@ -19,7 +19,8 @@
         "ms-vscode.vscode-typescript-next",
         "esbenp.prettier-vscode",
         "bradlc.vscode-tailwindcss",
-        "ms-vscode.vscode-json"
+        "ms-vscode.vscode-json",
+        "ms-azuretools.vscode-docker",
       ],
       "settings": {
         "terminal.integrated.defaultProfile.linux": "zsh"

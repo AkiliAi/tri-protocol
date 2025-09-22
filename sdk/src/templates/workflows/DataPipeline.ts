@@ -9,7 +9,7 @@ export class DataPipelineTemplate implements WorkflowTemplate {
     const workflow = await sdk.createWorkflow('DataPipeline');
 
     return workflow
-      .withDescription(this.description)
+      // .withDescription(this.description)
       .withTimeout(300000) // 5 minutes
       .withRetries(3)
       .withCheckpointing(true)

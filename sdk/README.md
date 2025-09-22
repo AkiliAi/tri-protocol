@@ -1,5 +1,10 @@
 # Tri-Protocol SDK
 
+[![npm version](https://badge.fury.io/js/%40tri-protocol%2Fsdk.svg)](https://badge.fury.io/js/%40tri-protocol%2Fsdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/node/v/@tri-protocol/sdk)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-blue.svg)](https://www.typescriptlang.org/)
+
 Official SDK for the Tri-Protocol Framework - Build sophisticated multi-agent systems with ease.
 
 ## Features
@@ -348,7 +353,7 @@ MIT License - see [LICENSE](../LICENSE) for details.
 
 ## Support
 
-- [Documentation](https://tri-protocol.dev/docs)
-- [API Reference](https://tri-protocol.dev/api)
-- [GitHub Issues](https://github.com/tri-protocol/tri-protocol/issues)
+- [Documentation](https://github.com/AkiliAi/tri-protocol)
+- [API Reference](https://github.com/AkiliAi/tri-protocol)
+- [GitHub Issues](https://github.com/AkiliAi/tri-protocol/issues)
 - [Discord Community](https://discord.gg/tri-protocol)

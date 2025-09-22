@@ -1,14 +1,19 @@
 {
   "name": "@tri-protocol/sdk",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Official SDK for Tri-Protocol Framework - Build sophisticated multi-agent systems with ease",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsc",
     "clean": "rimraf dist",
@@ -18,12 +23,14 @@
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "docs": "typedoc --out docs/api src/index.ts",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run clean && npm run test && npm run build",
+    "preversion": "npm run test",
+    "version": "npm run format "
   },
   "dependencies": {
-    "@tri-protocol/core": "workspace:*",
-    "@tri-protocol/protocols": "workspace:*",
-    "@tri-protocol/logger": "workspace:*",
+    "@tri-protocol/core": "^0.1.0",
+    "@tri-protocol/protocols": "^0.1.0",
+    "@tri-protocol/logger": "^0.1.0",
     "eventemitter3": "^5.0.1",
     "uuid": "^9.0.1",
     "reflect-metadata": "^0.2.1"

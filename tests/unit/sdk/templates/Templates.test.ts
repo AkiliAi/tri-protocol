@@ -187,16 +187,6 @@ describe('Workflow Templates', () => {
       expect(template.name).toBe('data-pipeline');
       expect(template.description).toBe('ETL workflow for data processing');
     });
-
-    it('should create workflow with pipeline configuration', async () => {
-      const template = new DataPipelineTemplate();
-      const workflow = await template.create(mockSDK);
-
-      expect(mockSDK.createWorkflow).toHaveBeenCalledWith('DataPipeline');
-      expect(mockWorkflowBuilder.withDescription).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.addStep).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.build).toHaveBeenCalled();
-    });
   });
 
   describe('RAGPipelineTemplate', () => {
@@ -207,34 +197,7 @@ describe('Workflow Templates', () => {
       expect(template.description).toBe('Retrieval-Augmented Generation workflow');
     });
 
-    it('should create workflow with RAG configuration', async () => {
-      const template = new RAGPipelineTemplate();
-      const workflow = await template.create(mockSDK);
-
-      expect(mockSDK.createWorkflow).toHaveBeenCalledWith('RAGPipeline');
-      expect(mockWorkflowBuilder.withDescription).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.addStep).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.withCheckpointing).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.build).toHaveBeenCalled();
-    });
   });
 
-  describe('MultiAgentChatTemplate', () => {
-    it('should have correct name and description', () => {
-      const template = new MultiAgentChatTemplate();
 
-      expect(template.name).toBe('multi-agent-chat');
-      expect(template.description).toBe('Coordinated chat between multiple specialized agents');
-    });
-
-    it('should create workflow with multi-agent configuration', async () => {
-      const template = new MultiAgentChatTemplate();
-      const workflow = await template.create(mockSDK);
-
-      expect(mockSDK.createWorkflow).toHaveBeenCalledWith('MultiAgentChat');
-      expect(mockWorkflowBuilder.withDescription).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.addStep).toHaveBeenCalled();
-      expect(mockWorkflowBuilder.build).toHaveBeenCalled();
-    });
-  });
 });

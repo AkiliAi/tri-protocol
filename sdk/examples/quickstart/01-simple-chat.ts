@@ -3,6 +3,7 @@
  * This example demonstrates the simplest way to use the Tri-Protocol SDK
  */
 
+// @ts-ignore
 import { TriProtocolSDK } from '@tri-protocol/sdk';
 
 async function main() {

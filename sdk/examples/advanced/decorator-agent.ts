@@ -3,6 +3,7 @@
  * This example shows how to create agents using TypeScript decorators
  */
 
+
 import {
   TriProtocolSDK,
   Agent,

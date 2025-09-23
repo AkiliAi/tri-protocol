@@ -3,6 +3,7 @@
  * This example shows how to create and configure a custom agent
  */
 
+// @ts-ignore
 import { TriProtocolSDK } from '@tri-protocol/sdk';
 
 async function main() {

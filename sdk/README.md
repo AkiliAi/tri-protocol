@@ -1,11 +1,15 @@
-# Tri-Protocol SDK
+# Tri-Protocol SDK (Beta)
 
-[![npm version](https://badge.fury.io/js/%40tri-protocol%2Fsdk.svg)](https://badge.fury.io/js/%40tri-protocol%2Fsdk)
+[![npm version](https://badge.fury.io/js/tri-protocol-sdk.svg)](https://www.npmjs.com/package/tri-protocol-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/node/v/@tri-protocol/sdk)](https://nodejs.org)
+[![Node.js Version](https://img.shields.io/node/v/tri-protocol-sdk)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.3+-blue.svg)](https://www.typescriptlang.org/)
 
 Official SDK for the Tri-Protocol Framework - Build sophisticated multi-agent systems with ease.
+
+## ⚠️ Beta Notice
+
+This is a **beta release**. The SDK provides types, interfaces, and structure for the Tri-Protocol framework. Full functionality will be available when the core packages are published.
 
 ## Features
 
@@ -20,8 +24,10 @@ Official SDK for the Tri-Protocol Framework - Build sophisticated multi-agent sy
 ## Installation
 
 ```bash
-npm install @tri-protocol/sdk
+npm install tri-protocol-sdk
 ```
+
+**Note:** This beta version provides the SDK structure and TypeScript types. Full functionality requires the complete framework (coming soon).
 
 ## Quick Start
 

@@ -35,7 +35,7 @@
     }
   },
   "forwardPorts": [3000, 8080],
-  "postCreateCommand": "npm install",
+  "postCreateCommand": "rm -rf node_modules */node_modules package-lock.json */package-lock.json && npm install",
   "remoteUser": "vscode",
   "privileged": true,
   "init": true,

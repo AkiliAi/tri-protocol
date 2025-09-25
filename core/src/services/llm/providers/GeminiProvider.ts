@@ -121,8 +121,13 @@ export class GeminiProvider extends BaseProvider {
     try {
       // Test API key by listing models
       const response = await fetch(
-        `${this.apiUrl}/models?key=${this.apiKey}`,
-        { signal: AbortSignal.timeout(5000) }
+        `${this.apiUrl}/models`,
+        {
+          headers: {
+            'X-goog-api-key': this.apiKey
+          },
+          signal: AbortSignal.timeout(5000)
+        }
       );
       
       if (response.status === 401 || response.status === 403) {
@@ -201,13 +206,16 @@ export class GeminiProvider extends BaseProvider {
         };
       }
 
-      const url = `${this.apiUrl}/models/${model}:generateContent?key=${this.apiKey}`;
-      
+      const url = `${this.apiUrl}/models/${model}:generateContent`;
+
       const response = await this.makeRequest<GeminiResponse>(
         url,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': this.apiKey
+          },
           body: JSON.stringify(request)
         }
       );
@@ -284,11 +292,14 @@ export class GeminiProvider extends BaseProvider {
         };
       }
 
-      const url = `${this.apiUrl}/models/${model}:streamGenerateContent?key=${this.apiKey}&alt=sse`;
-      
+      const url = `${this.apiUrl}/models/${model}:streamGenerateContent?alt=sse`;
+
       const response = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-goog-api-key': this.apiKey
+        },
         body: JSON.stringify(request),
         signal: AbortSignal.timeout(options?.timeout || 60000)
       });
@@ -372,13 +383,16 @@ export class GeminiProvider extends BaseProvider {
         taskType: 'RETRIEVAL_DOCUMENT'
       };
 
-      const url = `${this.apiUrl}/models/${model}:embedContent?key=${this.apiKey}`;
-      
+      const url = `${this.apiUrl}/models/${model}:embedContent`;
+
       const response = await this.makeRequest<GeminiEmbeddingResponse>(
         url,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'X-goog-api-key': this.apiKey
+          },
           body: JSON.stringify(request)
         }
       );
@@ -414,7 +428,11 @@ export class GeminiProvider extends BaseProvider {
    */
   async listModels(): Promise<string[]> {
     try {
-      const response = await fetch(`${this.apiUrl}/models?key=${this.apiKey}`);
+      const response = await fetch(`${this.apiUrl}/models`, {
+        headers: {
+          'X-goog-api-key': this.apiKey
+        }
+      });
       
       if (response.ok) {
         const data = await response.json();

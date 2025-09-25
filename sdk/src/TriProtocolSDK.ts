@@ -85,11 +85,56 @@ export class TriProtocolSDK extends EventEmitter {
       this.logger.info('Initializing Tri-Protocol SDK...');
 
       // Initialize core protocol
-      this.protocol = new TriProtocol({
+      // Transform SDK llm config to TriProtocol LLMConfig format
+      const protocolConfig: any = {
+        name: 'tri-protocol-sdk',
+        version: '1.0.0',
         persistence: this.config.persistence,
-        llm: this.config.llm,
-        protocols: this.config.protocols
-      } as any);
+        protocols: {
+          a2a: { enabled: false },
+          langgraph: { enabled: false },
+          mcp: { enabled: false }
+        }
+      };
+
+      // Add protocol configs if provided
+      if (this.config.protocols) {
+        if (this.config.protocols.a2a) {
+          protocolConfig.protocols.a2a = typeof this.config.protocols.a2a === 'boolean'
+            ? { enabled: this.config.protocols.a2a }
+            : { ...this.config.protocols.a2a, enabled: true };
+        }
+        if (this.config.protocols.langgraph) {
+          protocolConfig.protocols.langgraph = typeof this.config.protocols.langgraph === 'boolean'
+            ? { enabled: this.config.protocols.langgraph }
+            : { ...this.config.protocols.langgraph, enabled: true };
+        }
+        if (this.config.protocols.mcp) {
+          protocolConfig.protocols.mcp = typeof this.config.protocols.mcp === 'boolean'
+            ? { enabled: this.config.protocols.mcp }
+            : { ...this.config.protocols.mcp, enabled: true };
+        }
+      }
+
+      // Transform LLM config if provided
+      if (this.config.llm) {
+        protocolConfig.llm = {
+          defaultProvider: this.config.llm.provider || 'ollama',
+          providers: [{
+            type: this.config.llm.provider || 'ollama',
+            enabled: true,
+            apiKey: this.config.llm.apiKey,
+            model: this.config.llm.model,
+            endpoint: this.config.llm.endpoint,
+            priority: 1
+          }],
+          enableCache: true,
+          fallbackStrategy: 'cascade' as const,
+          timeout: 30000
+        };
+      }
+
+      this.protocol = new TriProtocol(protocolConfig);
 
       await this.protocol.initialize();
 

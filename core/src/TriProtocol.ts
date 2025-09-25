@@ -14,6 +14,8 @@ import type { WorkflowDefinition, WorkflowExecution } from '../../protocols/src/
 
 import { Logger } from '../../logger';
 import { TriRegistry } from './TriRegistry';
+import { LLMService } from './services/llm/LLMService';
+import type { LLMConfig } from './services/llm/types';
 export interface TriProtocolConfig {
     name: string;
     version: string;
@@ -34,6 +36,7 @@ export interface TriProtocolConfig {
             config?: any;
         };
     };
+    llm?: LLMConfig;
 }
 
 export class TriProtocol extends EventEmitter {
@@ -41,6 +44,7 @@ export class TriProtocol extends EventEmitter {
     private a2aProtocol?: A2AProtocol;
     private langGraphAdapter?: LangGraphAdapter;
     private mcpAdapter?: MCPAdapter;
+    private llmService?: LLMService;
     private adapters = new Map<string, any>();
     private isInitialized = false;
     private logger: Logger;
@@ -58,6 +62,11 @@ export class TriProtocol extends EventEmitter {
         if (this.isInitialized) return;
 
         this.logger.info('Initializing Tri-Protocol...');
+
+        // Initialize LLM Service if configured
+        if (this.config.llm) {
+            await this.initializeLLMService();
+        }
 
         // Initialize A2A Protocol
         if (this.config.protocols.a2a?.enabled) {
@@ -79,6 +88,16 @@ export class TriProtocol extends EventEmitter {
 
         this.logger.info('Tri-Protocol initialized successfully');
         this.emit('initialized');
+    }
+
+    private async initializeLLMService(): Promise<void> {
+        try {
+            this.llmService = new LLMService(this.config.llm!);
+            this.logger.info('LLM Service initialized');
+        } catch (error) {
+            this.logger.error('Failed to initialize LLM Service', error);
+            throw error;
+        }
     }
 
     private async initializeA2A(): Promise<void> {
@@ -571,6 +590,10 @@ export class TriProtocol extends EventEmitter {
         return this.mcpAdapter;
     }
 
+    getLLMService(): LLMService | undefined {
+        return this.llmService;
+    }
+
     getRegistry(): TriRegistry {
         return this.registry;
     }
@@ -604,6 +627,10 @@ export class TriProtocol extends EventEmitter {
     async shutdown(): Promise<void> {
         this.logger.info('Shutting down Tri-Protocol...');
 
+        if (this.llmService) {
+            await this.llmService.stop();
+        }
+
         if (this.a2aProtocol) {
             await this.a2aProtocol.shutdown();
         }
@@ -621,6 +648,7 @@ export class TriProtocol extends EventEmitter {
         this.isInitialized = false;
 
         // Clear adapter references
+        this.llmService = undefined;
         this.a2aProtocol = undefined;
         this.langGraphAdapter = undefined;
         this.mcpAdapter = undefined;

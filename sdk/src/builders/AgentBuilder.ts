@@ -1,3 +1,5 @@
+//sdk/src/builders/AgentBuilder.ts
+// Description: Builder pattern for creating and configuring AI agents in a multi-agent system.
 import { TriProtocol, TriAgent } from '../types/core-types';
 import { EventEmitter } from 'eventemitter3';
 import { v4 as uuidv4 } from 'uuid';

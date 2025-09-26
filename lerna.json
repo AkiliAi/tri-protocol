@@ -18,5 +18,5 @@
       "createRelease": "github"
     }
   },
-  "packages": ["logger", "core", "protocols", "runtime", "sdk", "cli"]
+  "packages": ["logger", "protocols","core","sdk", "runtime","cli"]
 }

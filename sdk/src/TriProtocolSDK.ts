@@ -73,6 +73,41 @@ export class TriProtocolSDK extends EventEmitter {
     return sdk;
   }
 
+  /**
+   * Create and initialize SDK with minimal configuration for quick start
+   * This mode disables all network features and uses in-memory storage
+   */
+  static async quickStart(name: string = 'quickstart'): Promise<TriProtocolSDK> {
+    const config: SDKConfig = {
+      mode: 'development',
+      simple: true,  // Enable simple mode
+      persistence: {
+        enabled: true,
+        backend: 'memory'
+      },
+      protocols: {
+        a2a: {
+          enabled: true,
+          lazy: true,  // Lazy mode - no network initialization
+          discovery: false,  // No discovery
+          enableP2P: false  // No P2P
+        },
+        mcp: false,  // Disable MCP for quick start
+        langgraph: false  // Disable LangGraph for quick start
+      },
+      llm: {
+        provider: 'ollama',
+        model: 'llama2'
+      },
+      logging: {
+        level: 'info',
+        enabled: true
+      }
+    };
+
+    return TriProtocolSDK.initialize(name, config);
+  }
+
   private normalizeConfig(config: SDKConfig): SDKConfig {
     const defaults: SDKConfig = {
       mode: config.mode || 'development',
@@ -141,6 +176,17 @@ export class TriProtocolSDK extends EventEmitter {
           protocolConfig.protocols.mcp = typeof this.config.protocols.mcp === 'boolean'
             ? { enabled: this.config.protocols.mcp }
             : { ...this.config.protocols.mcp, enabled: true };
+        }
+      }
+
+      // Apply simple mode optimizations
+      if (this.config.simple) {
+        protocolConfig.initTimeout = 2000;  // Shorter timeout for simple mode
+        if (protocolConfig.protocols.a2a) {
+          protocolConfig.protocols.a2a.lazy = true;
+          protocolConfig.protocols.a2a.discovery = false;
+          protocolConfig.protocols.a2a.enableP2P = false;
+          protocolConfig.protocols.a2a.discoveryTimeout = 500;
         }
       }
 

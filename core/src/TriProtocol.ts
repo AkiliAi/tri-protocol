@@ -26,6 +26,10 @@ export interface TriProtocolConfig {
             agentCard?: Partial<AgentCard>;
             security?: any;
             network?: any;
+            lazy?: boolean;  // Enable lazy mode for A2A
+            discovery?: boolean;  // Enable discovery (default false)
+            enableP2P?: boolean;  // Enable P2P (default false)
+            discoveryTimeout?: number;  // Timeout for discovery (default 1000ms)
         };
         langgraph?: {
             enabled: boolean;
@@ -37,6 +41,7 @@ export interface TriProtocolConfig {
         };
     };
     llm?: LLMConfig;
+    initTimeout?: number;  // Timeout for protocol initialization (default 5000ms)
 }
 
 export class TriProtocol extends EventEmitter {
@@ -63,24 +68,53 @@ export class TriProtocol extends EventEmitter {
 
         this.logger.info('Initializing Tri-Protocol...');
 
-        // Initialize LLM Service if configured
+        const initTasks: Promise<void>[] = [];
+
+        // Initialize LLM Service first (if configured) as others might depend on it
         if (this.config.llm) {
             await this.initializeLLMService();
         }
 
-        // Initialize A2A Protocol
+        // Initialize all protocols in parallel for faster startup
         if (this.config.protocols.a2a?.enabled) {
-            await this.initializeA2A();
+            initTasks.push(
+                this.initializeA2A().catch(error => {
+                    this.logger.error('A2A initialization failed:', error.message);
+                    // Don't throw - continue without A2A
+                })
+            );
         }
 
-        // Initialize LangGraph
         if (this.config.protocols.langgraph?.enabled) {
-            await this.initializeLangGraph(this.config.protocols.langgraph);
+            initTasks.push(
+                this.initializeLangGraph(this.config.protocols.langgraph).catch(error => {
+                    this.logger.error('LangGraph initialization failed:', error.message);
+                    // Don't throw - continue without LangGraph
+                })
+            );
         }
 
-        // Initialize MCP
         if (this.config.protocols.mcp?.enabled) {
-            await this.initializeMCP(this.config.protocols.mcp);
+            initTasks.push(
+                this.initializeMCP(this.config.protocols.mcp).catch(error => {
+                    this.logger.error('MCP initialization failed:', error.message);
+                    // Don't throw - continue without MCP
+                })
+            );
+        }
+
+        // Wait for all protocols to initialize (with timeout)
+        if (initTasks.length > 0) {
+            const timeout = this.config.initTimeout || 5000; // 5 second default timeout
+            await Promise.race([
+                Promise.all(initTasks),
+                new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Protocol initialization timeout')), timeout)
+                )
+            ]).catch(error => {
+                this.logger.warn('Some protocols failed to initialize:', error.message);
+                // Continue anyway - partial initialization is better than complete failure
+            });
         }
 
         this.setupCrossProtocolBridge();
@@ -120,7 +154,11 @@ export class TriProtocol extends EventEmitter {
         this.a2aProtocol = new A2AProtocol({
             agentCard: defaultAgentCard,
             security: this.config.protocols.a2a?.security,
-            network: this.config.protocols.a2a?.network
+            network: this.config.protocols.a2a?.network,
+            lazy: this.config.protocols.a2a?.lazy,
+            discovery: this.config.protocols.a2a?.discovery,
+            enableP2P: this.config.protocols.a2a?.enableP2P,
+            discoveryTimeout: this.config.protocols.a2a?.discoveryTimeout
         });
 
         this.setupA2AEventHandlers();

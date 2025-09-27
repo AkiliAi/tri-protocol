@@ -11,12 +11,14 @@ import {
   AgentTemplate,
   WorkflowTemplate
 } from './types';
+import { SDKMetrics, SDKMetricsConfig, MetricSnapshot } from './metrics';
 
 export class TriProtocolSDK extends EventEmitter {
-  private static instance: TriProtocolSDK;
+  private static instances: Map<string, TriProtocolSDK> = new Map();
   private protocol!: TriProtocol;
   private client!: any;
   private config: SDKConfig;
+  private metrics: SDKMetrics;
   private plugins: Map<string, Plugin> = new Map();
   private agentTemplates: Map<string, AgentTemplate> = new Map();
   private workflowTemplates: Map<string, WorkflowTemplate> = new Map();
@@ -30,17 +32,43 @@ export class TriProtocolSDK extends EventEmitter {
     super();
     this.config = this.normalizeConfig(config);
     this.logger = LoggerManager.getLogger('TriProtocolSDK');
+
+    // Initialize metrics system
+    const metricsConfig: SDKMetricsConfig = {
+      enabled: config.metrics?.enabled !== false,
+      collectInterval: config.metrics?.collectInterval || 60000,
+      persistence: config.metrics?.persistence || 'memory',
+      exporters: config.metrics?.exporters || []
+    };
+    this.metrics = new SDKMetrics(metricsConfig);
   }
 
-  static create(config?: SDKConfig): TriProtocolSDK {
-    if (!TriProtocolSDK.instance) {
-      TriProtocolSDK.instance = new TriProtocolSDK(config);
+  static create(name: string = 'default', config?: SDKConfig): TriProtocolSDK {
+    // Create a safe key without circular references
+    const configKey = config ? this.createConfigKey(config) : 'default';
+    const key = `${name}-${configKey}`;
+
+    if (!TriProtocolSDK.instances.has(key)) {
+      const instance = new TriProtocolSDK(config);
+      TriProtocolSDK.instances.set(key, instance);
     }
-    return TriProtocolSDK.instance;
+
+    return TriProtocolSDK.instances.get(key)!;
   }
 
-  static async initialize(config?: SDKConfig): Promise<TriProtocolSDK> {
-    const sdk = TriProtocolSDK.create(config);
+  private static createConfigKey(config: SDKConfig): string {
+    // Create a simple key from main config properties
+    const keyParts = [
+      config.mode || 'dev',
+      config.persistence?.backend || 'mem',
+      config.llm?.provider || 'default',
+      config.metrics?.enabled ? 'metrics' : 'no-metrics'
+    ];
+    return keyParts.join('-');
+  }
+
+  static async initialize(name: string = 'default', config?: SDKConfig): Promise<TriProtocolSDK> {
+    const sdk = TriProtocolSDK.create(name, config);
     await sdk.initialize();
     return sdk;
   }
@@ -157,6 +185,9 @@ export class TriProtocolSDK extends EventEmitter {
         this.setupHooks(this.config.advanced.hooks);
       }
 
+      // Instrument SDK operations for metrics
+      this.instrumentOperations();
+
       this.initialized = true;
       this.logger.info('Tri-Protocol SDK initialized successfully');
       this.emit('initialized');
@@ -199,57 +230,161 @@ export class TriProtocolSDK extends EventEmitter {
     }
   }
 
+  /**
+   * Instrument SDK operations with metrics collection
+   */
+  private instrumentOperations(): void {
+    // Track protocol usage
+    if (this.protocol) {
+      const originalA2AEnabled = this.config.protocols?.a2a;
+      const originalMCPEnabled = this.config.protocols?.mcp;
+      const originalLangGraphEnabled = this.config.protocols?.langgraph;
+
+      if (originalA2AEnabled) {
+        this.on('protocol:a2a:used', () => {
+          this.metrics.incrementCounter('protocol.a2a');
+        });
+      }
+
+      if (originalMCPEnabled) {
+        this.on('protocol:mcp:used', () => {
+          this.metrics.incrementCounter('protocol.mcp');
+        });
+      }
+
+      if (originalLangGraphEnabled) {
+        this.on('protocol:langgraph:used', () => {
+          this.metrics.incrementCounter('protocol.langgraph');
+        });
+      }
+    }
+
+    // Track LLM usage
+    this.on('llm:call', (data: any) => {
+      if (data.provider) {
+        this.metrics.recordLLMCall(
+          data.provider,
+          data.tokens || 0,
+          data.cached || false,
+          data.cost
+        );
+      }
+    });
+  }
+
   async createAgent(name: string, template?: string): Promise<any> {
     await this.ensureInitialized();
 
-    const { AgentBuilder } = await import('./builders/AgentBuilder');
-    const builder = new AgentBuilder(this.protocol, this);
+    const timer = this.metrics.startTimer('agent.create');
+    this.metrics.incrementCounter('agents.created');
+    this.metrics.incrementCounter('builders.agent');
 
-    builder.withName(name);
+    try {
+      const { AgentBuilder } = await import('./builders/AgentBuilder');
+      const builder = new AgentBuilder(this.protocol, this);
 
-    if (template) {
-      const templateObj = this.agentTemplates.get(template.toLowerCase());
-      if (templateObj) {
-        return templateObj.create(this);
+      builder.withName(name);
+
+      if (template) {
+        this.metrics.incrementCounter('builders.fromTemplate');
+        const templateObj = this.agentTemplates.get(template.toLowerCase());
+        if (templateObj) {
+          const agent = await templateObj.create(this);
+          this.metrics.endTimer(timer);
+          this.metrics.setGauge('agents.active',
+            (this.metrics.getSnapshot().activeAgents || 0) + 1
+          );
+          return agent;
+        }
+        builder.fromTemplate(template);
+      } else {
+        this.metrics.incrementCounter('builders.fromScratch');
       }
-      builder.fromTemplate(template);
-    }
 
-    return builder;
+      // Wrap builder's build method to track metrics
+      const originalBuild = builder.build.bind(builder);
+      builder.build = async () => {
+        const agent = await originalBuild();
+        this.metrics.setGauge('agents.active',
+          (this.metrics.getSnapshot().activeAgents || 0) + 1
+        );
+        return agent;
+      };
+
+      this.metrics.endTimer(timer);
+      return builder;
+    } catch (error) {
+      this.metrics.endTimer(timer);
+      this.metrics.recordError(error as Error, { name, template });
+      throw error;
+    }
   }
 
   async createWorkflow(name: string): Promise<any> {
     await this.ensureInitialized();
 
-    const { WorkflowBuilder } = await import('./builders/WorkflowBuilder');
-    return new WorkflowBuilder(this.protocol, this).withName(name);
+    const timer = this.metrics.startTimer('workflow.create');
+    this.metrics.incrementCounter('builders.workflow');
+
+    try {
+      const { WorkflowBuilder } = await import('./builders/WorkflowBuilder');
+      const builder = new WorkflowBuilder(this.protocol, this).withName(name);
+
+      // Wrap builder's build method to track metrics
+      const originalBuild = builder.build.bind(builder);
+      builder.build = async () => {
+        const workflow = await originalBuild();
+        this.metrics.setGauge('workflows.active',
+          (this.metrics.getSnapshot().activeWorkflows || 0) + 1
+        );
+        return workflow;
+      };
+
+      this.metrics.endTimer(timer);
+      return builder;
+    } catch (error) {
+      this.metrics.endTimer(timer);
+      this.metrics.recordError(error as Error, { name });
+      throw error;
+    }
   }
 
   async query(question: string, context?: any): Promise<any> {
     await this.ensureInitialized();
 
+    const timer = this.metrics.startTimer('query');
+    this.metrics.incrementCounter('queries.total');
+
     try {
       const analysis = await this.analyzeQuery(question);
       this.logger.debug('Query analysis:', analysis);
 
+      let result;
       if (analysis.type === 'agent') {
         const agent = await this.findBestAgent(analysis.capability);
         if (agent) {
-          return agent.respond(question, context);
+          result = await agent.respond(question, context);
         }
       }
 
-      if (analysis.type === 'workflow') {
+      if (!result && analysis.type === 'workflow') {
         const workflow = this.workflowTemplates.get(analysis.workflow!);
         if (workflow) {
           const wf = await workflow.create(this);
-          return wf.execute({ input: question, context });
+          result = await wf.execute({ input: question, context });
         }
       }
 
-      // Default to LLM
-      return this.client.llm.complete(question, context);
+      if (!result) {
+        // Default to LLM
+        result = await this.client.llm.complete(question, context);
+      }
+
+      this.metrics.endTimer(timer);
+      return result;
     } catch (error) {
+      this.metrics.endTimer(timer);
+      this.metrics.recordError(error as Error, { question, context });
       this.logger.error('Query failed:', error);
       this.emit('error', error);
       throw new SDKError('Query execution failed', 'QUERY_ERROR', error);
@@ -335,13 +470,34 @@ export class TriProtocolSDK extends EventEmitter {
   async runWorkflow(template: string, input: any): Promise<any> {
     await this.ensureInitialized();
 
-    const workflowTemplate = this.workflowTemplates.get(template.toLowerCase());
-    if (!workflowTemplate) {
-      throw new SDKError(`Workflow template '${template}' not found`, 'TEMPLATE_NOT_FOUND');
-    }
+    const timer = this.metrics.startTimer('workflow.execute');
+    this.metrics.incrementCounter('workflows.executed');
+    this.metrics.setGauge('workflows.active',
+      (this.metrics.getSnapshot().activeWorkflows || 0) + 1
+    );
 
-    const workflow = await workflowTemplate.create(this);
-    return workflow.execute(input);
+    try {
+      const workflowTemplate = this.workflowTemplates.get(template.toLowerCase());
+      if (!workflowTemplate) {
+        throw new SDKError(`Workflow template '${template}' not found`, 'TEMPLATE_NOT_FOUND');
+      }
+
+      const workflow = await workflowTemplate.create(this);
+      const result = await workflow.execute(input);
+
+      this.metrics.endTimer(timer);
+      this.metrics.setGauge('workflows.active',
+        Math.max(0, (this.metrics.getSnapshot().activeWorkflows || 1) - 1)
+      );
+      return result;
+    } catch (error) {
+      this.metrics.endTimer(timer);
+      this.metrics.setGauge('workflows.active',
+        Math.max(0, (this.metrics.getSnapshot().activeWorkflows || 1) - 1)
+      );
+      this.metrics.recordError(error as Error, { template, input });
+      throw error;
+    }
   }
 
   private async getOrCreateChatAgent(): Promise<SDKAgent> {
@@ -447,6 +603,9 @@ export class TriProtocolSDK extends EventEmitter {
       this.chatAgent = undefined;
       this.analystAgent = undefined;
 
+      // Stop metrics collection
+      this.metrics.stop();
+
       // Shutdown protocol
       if (this.protocol) {
         await this.protocol.shutdown();
@@ -488,5 +647,33 @@ export class TriProtocolSDK extends EventEmitter {
 
   getWorkflowTemplates(): string[] {
     return Array.from(this.workflowTemplates.keys());
+  }
+
+  /**
+   * Get the metrics collector instance
+   */
+  getMetrics(): SDKMetrics {
+    return this.metrics;
+  }
+
+  /**
+   * Get current metrics snapshot
+   */
+  getMetricsSnapshot(): MetricSnapshot {
+    return this.metrics.getSnapshot();
+  }
+
+  /**
+   * Enable metrics export with a specific exporter
+   */
+  enableMetricsExport(exporter: any): void {
+    this.metrics.addExporter(exporter);
+  }
+
+  /**
+   * Clear all singleton instances (for testing)
+   */
+  static clearInstances(): void {
+    TriProtocolSDK.instances.clear();
   }
 }

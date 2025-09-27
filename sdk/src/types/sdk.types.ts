@@ -1,5 +1,6 @@
 import { EventEmitter } from 'eventemitter3';
 import { TriAgent, TriWorkflow } from './core-types';
+import { MetricExporter } from '../metrics';
 
 export interface SDKConfig {
   mode?: 'development' | 'production';
@@ -23,6 +24,13 @@ export interface SDKConfig {
     a2a?: boolean | A2AConfig;
     mcp?: boolean | MCPConfig;
     langgraph?: boolean | LangGraphConfig;
+  };
+
+  metrics?: {
+    enabled?: boolean;
+    collectInterval?: number;
+    persistence?: 'memory' | 'redis' | 'prometheus';
+    exporters?: MetricExporter[];
   };
 
   advanced?: {

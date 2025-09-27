@@ -30,13 +30,15 @@
   },
   "dependencies": {
     "eventemitter3": "^5.0.1",
-    "uuid": "^9.0.1",
-    "reflect-metadata": "^0.2.1"
+    "express": "^5.1.0",
+    "reflect-metadata": "^0.2.1",
+    "socket.io": "^4.8.1",
+    "uuid": "^9.0.1"
   },
   "peerDependencies": {
     "@tri-protocol/core": "file:../core",
-    "@tri-protocol/protocols": "file:../protocols",
-    "@tri-protocol/logger": "file:../logger"
+    "@tri-protocol/logger": "file:../logger",
+    "@tri-protocol/protocols": "file:../protocols"
   },
   "peerDependenciesMeta": {
     "@tri-protocol/core": {

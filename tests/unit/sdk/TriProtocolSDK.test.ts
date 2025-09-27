@@ -30,8 +30,8 @@ describe('TriProtocolSDK', () => {
     // Clear all instances and calls to constructor and all methods
     jest.clearAllMocks();
 
-    // Reset singleton instance
-    (TriProtocolSDK as any).instance = null;
+    // Clear all factory instances
+    TriProtocolSDK.clearInstances();
 
     mockConfig = {
       mode: 'development',
@@ -45,20 +45,26 @@ describe('TriProtocolSDK', () => {
     };
   });
 
-  describe('Singleton Pattern', () => {
+  describe('Factory Pattern', () => {
     it('should create instance with create() method', () => {
-      const instance = TriProtocolSDK.create(mockConfig);
+      const instance = TriProtocolSDK.create('test', mockConfig);
       expect(instance).toBeInstanceOf(TriProtocolSDK);
     });
 
-    it('should return same instance with multiple create() calls', () => {
-      const instance1 = TriProtocolSDK.create(mockConfig);
-      const instance2 = TriProtocolSDK.create(mockConfig);
+    it('should return same instance with same name', () => {
+      const instance1 = TriProtocolSDK.create('test1', mockConfig);
+      const instance2 = TriProtocolSDK.create('test1', mockConfig);
       expect(instance1).toBe(instance2);
     });
 
+    it('should return different instances with different names', () => {
+      const instance1 = TriProtocolSDK.create('test1', mockConfig);
+      const instance2 = TriProtocolSDK.create('test2', mockConfig);
+      expect(instance1).not.toBe(instance2);
+    });
+
     it('should create and initialize with static initialize method', async () => {
-      const instance = await TriProtocolSDK.initialize(mockConfig);
+      const instance = await TriProtocolSDK.initialize('test-init', mockConfig);
       expect(instance).toBeInstanceOf(TriProtocolSDK);
       expect(instance.isInitialized()).toBe(true);
     });
@@ -66,7 +72,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Initialization', () => {
     beforeEach(() => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-init', mockConfig);
     });
 
     it('should initialize with default config', async () => {
@@ -87,14 +93,14 @@ describe('TriProtocolSDK', () => {
         }
       };
 
-      const customSdk = TriProtocolSDK.create(customConfig);
+      const customSdk = TriProtocolSDK.create('custom-test', customConfig);
       await customSdk.initialize();
       expect(customSdk.isInitialized()).toBe(true);
     });
 
     it('should handle initialization errors', async () => {
       const errorConfig = { ...mockConfig };
-      const errorSdk = TriProtocolSDK.create(errorConfig);
+      const errorSdk = TriProtocolSDK.create('error-test', errorConfig);
 
       // Mock the protocol initialization to throw error
       const originalInit = errorSdk.initialize;
@@ -106,7 +112,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Agent Management', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('agent-test', mockConfig);
       await sdk.initialize();
     });
 
@@ -124,7 +130,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Workflow Management', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('workflow-test', mockConfig);
       await sdk.initialize();
     });
 
@@ -160,7 +166,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Query and Chat', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-instance', mockConfig);
       await sdk.initialize();
     });
 
@@ -218,7 +224,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Client Operations', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-instance', mockConfig);
       await sdk.initialize();
     });
 
@@ -238,7 +244,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Plugin Management', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-instance', mockConfig);
       await sdk.initialize();
     });
 
@@ -261,7 +267,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Event Handling', () => {
     beforeEach(async () => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-instance', mockConfig);
       await sdk.initialize();
     });
 
@@ -289,7 +295,7 @@ describe('TriProtocolSDK', () => {
 
   describe('State Management', () => {
     beforeEach(() => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('test-instance', mockConfig);
     });
 
     it('should check if initialized', async () => {
@@ -308,7 +314,7 @@ describe('TriProtocolSDK', () => {
 
   describe('Error Handling', () => {
     beforeEach(() => {
-      sdk = TriProtocolSDK.create(mockConfig);
+      sdk = TriProtocolSDK.create('error-test', mockConfig);
     });
 
     it('should handle double initialization', async () => {
@@ -319,7 +325,7 @@ describe('TriProtocolSDK', () => {
 
     it('should handle missing required config', async () => {
       const incompleteConfig = {} as SDKConfig;
-      const testSdk = TriProtocolSDK.create(incompleteConfig);
+      const testSdk = TriProtocolSDK.create('incomplete-test', incompleteConfig);
 
       // Should use defaults without throwing
       await expect(testSdk.initialize()).resolves.not.toThrow();

@@ -14,6 +14,8 @@ import type { WorkflowDefinition, WorkflowExecution } from '../../protocols/src/
 
 import { Logger } from '../../logger';
 import { TriRegistry } from './TriRegistry';
+import { TriOrchestrator } from './TriOrchestrator';
+import { PersistenceManager, PersistenceConfig } from './persistence/PersistenceManager';
 import { LLMService } from './services/llm/LLMService';
 import type { LLMConfig } from './services/llm/types';
 export interface TriProtocolConfig {
@@ -41,6 +43,7 @@ export interface TriProtocolConfig {
         };
     };
     llm?: LLMConfig;
+    persistence?: PersistenceConfig;  // Persistence configuration
     initTimeout?: number;  // Timeout for protocol initialization (default 5000ms)
 }
 
@@ -50,6 +53,8 @@ export class TriProtocol extends EventEmitter {
     private langGraphAdapter?: LangGraphAdapter;
     private mcpAdapter?: MCPAdapter;
     private llmService?: LLMService;
+    private orchestrator?: TriOrchestrator;
+    private persistenceManager?: PersistenceManager;
     private adapters = new Map<string, any>();
     private isInitialized = false;
     private logger: Logger;
@@ -74,6 +79,14 @@ export class TriProtocol extends EventEmitter {
         if (this.config.llm) {
             await this.initializeLLMService();
         }
+
+        // Initialize Persistence Manager if configured
+        if (this.config.persistence) {
+            await this.initializePersistence();
+        }
+
+        // Initialize Orchestrator (always needed for task/workflow management)
+        await this.initializeOrchestrator();
 
         // Initialize all protocols in parallel for faster startup
         if (this.config.protocols.a2a?.enabled) {
@@ -127,10 +140,36 @@ export class TriProtocol extends EventEmitter {
     private async initializeLLMService(): Promise<void> {
         try {
             this.llmService = new LLMService(this.config.llm!);
+            // LLMService is initialized in constructor, no need for initialize()
             this.logger.info('LLM Service initialized');
         } catch (error) {
             this.logger.error('Failed to initialize LLM Service', error);
             throw error;
+        }
+    }
+
+    private async initializePersistence(): Promise<void> {
+        try {
+            this.persistenceManager = new PersistenceManager(this.config.persistence!);
+            await this.persistenceManager.initialize();
+            this.logger.info('Persistence Manager initialized');
+        } catch (error) {
+            this.logger.error('Failed to initialize Persistence Manager', error);
+            // Don't throw - persistence is optional
+            this.logger.warn('Continuing without persistence');
+        }
+    }
+
+    private async initializeOrchestrator(): Promise<void> {
+        try {
+            // TriOrchestrator expects TriProtocol as first parameter, not TriRegistry
+            this.orchestrator = new TriOrchestrator(this, this.registry);
+            // TriOrchestrator doesn't have an initialize method
+            this.logger.info('Orchestrator initialized');
+        } catch (error) {
+            this.logger.error('Failed to initialize Orchestrator', error);
+            // Don't throw - orchestrator is optional but log warning
+            this.logger.warn('Task and workflow execution will not be available');
         }
     }
 
@@ -632,6 +671,14 @@ export class TriProtocol extends EventEmitter {
         return this.llmService;
     }
 
+    getOrchestrator(): TriOrchestrator | undefined {
+        return this.orchestrator;
+    }
+
+    getPersistence(): PersistenceManager | undefined {
+        return this.persistenceManager;
+    }
+
     getRegistry(): TriRegistry {
         return this.registry;
     }
@@ -665,6 +712,14 @@ export class TriProtocol extends EventEmitter {
     async shutdown(): Promise<void> {
         this.logger.info('Shutting down Tri-Protocol...');
 
+        // TriOrchestrator doesn't have a shutdown method
+        // Just clear the reference
+        this.orchestrator = undefined;
+
+        if (this.persistenceManager) {
+            await this.persistenceManager.shutdown();
+        }
+
         if (this.llmService) {
             await this.llmService.stop();
         }
@@ -685,7 +740,9 @@ export class TriProtocol extends EventEmitter {
         this.removeAllListeners();
         this.isInitialized = false;
 
-        // Clear adapter references
+        // Clear all references
+        this.orchestrator = undefined;
+        this.persistenceManager = undefined;
         this.llmService = undefined;
         this.a2aProtocol = undefined;
         this.langGraphAdapter = undefined;

@@ -261,15 +261,30 @@ export class TriProtocolClient {
     return {
       complete: async (prompt: string, options?: any) => {
         const llmService = this.sdk.getProtocol().getLLMService();
-        return llmService.complete(prompt, options);
+        if (!llmService) {
+          throw new SDKError('LLM Service not configured', 'NO_LLM_SERVICE');
+        }
+        // Use the correct method name from LLMService
+        const response = await llmService.complete(prompt, options);
+        return response.content;
       },
       chat: async (messages: any[], options?: any) => {
         const llmService = this.sdk.getProtocol().getLLMService();
-        return llmService.chat(messages, options);
+        if (!llmService) {
+          throw new SDKError('LLM Service not configured', 'NO_LLM_SERVICE');
+        }
+        // Use the correct method name from LLMService
+        const response = await llmService.chat(messages, options);
+        return response.content;
       },
       embed: async (text: string) => {
-        const embeddingService = this.sdk.getProtocol().getEmbeddingService();
-        return embeddingService.generateEmbedding(text);
+        const llmService = this.sdk.getProtocol().getLLMService();
+        if (!llmService) {
+          throw new SDKError('LLM Service not configured', 'NO_LLM_SERVICE');
+        }
+        // Use the correct method name from LLMService
+        const response = await llmService.embed(text);
+        return response.embedding;
       }
     };
   }

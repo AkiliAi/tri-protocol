@@ -11,6 +11,8 @@ export interface HybridDiscoveryConfig {
     mdnsInterface?: string;
     agentCard: AgentCard;
     port: number;
+    lazy?: boolean;  // Enable lazy mode to skip network initialization
+    timeout?: number;  // Timeout for discovery operations in milliseconds
 }
 
 export class HybridDiscovery extends EventEmitter {
@@ -18,7 +20,7 @@ export class HybridDiscovery extends EventEmitter {
     public config: HybridDiscoveryConfig;
     private mdns?: any;
     private browser?: any;
-    private discoveryMode: 'central' | 'p2p' | 'hybrid' = 'hybrid';
+    private discoveryMode: 'central' | 'p2p' |'none'| 'hybrid' = 'hybrid';
     private discoveredAgents = new Map<string, AgentProfile>();
     private registryClient = axios.create();
 
@@ -33,16 +35,42 @@ export class HybridDiscovery extends EventEmitter {
     }
 
     async initialize(): Promise<void> {
-        const promises: Promise<void>[] = [];
-
-        // Try central registry
-        if (this.config.registryUrl) {
-            promises.push(this.connectToCentralRegistry());
+        // Skip initialization if in lazy mode
+        if (this.config.lazy=== true) {
+            this.logger.info('Lazy discovery mode enabled - skipping network initialization');
+            this.discoveryMode = 'none';
+            return;
         }
 
-        // Try P2P if enabled
-        if (this.config.enableP2P !== false) {
-            promises.push(this.initializeP2P());
+        const promises: Promise<void>[] = [];
+        const timeout = this.config.timeout || 1000; // 1 second default timeout
+
+        // Try central registry with timeout
+        if (this.config.registryUrl) {
+            promises.push(
+                this.withTimeout(
+                    this.connectToCentralRegistry(),
+                    timeout,
+                    'Central registry connection timeout'
+                ).catch(err => {
+                    this.logger.warn('Central registry unavailable:', err.message);
+                    return Promise.resolve(); // Don't throw, continue without registry
+                })
+            );
+        }
+
+        // Try P2P only if EXPLICITLY enabled (not by default)
+        if (this.config.enableP2P === true) { // Changed from !== false to === true
+            promises.push(
+                this.withTimeout(
+                    this.initializeP2P(),
+                    timeout,
+                    'P2P initialization timeout'
+                ).catch(err => {
+                    this.logger.warn('P2P discovery unavailable:', err.message);
+                    return Promise.resolve(); // Don't throw, continue without P2P
+                })
+            );
         }
 
         const results = await Promise.allSettled(promises);
@@ -61,7 +89,9 @@ export class HybridDiscovery extends EventEmitter {
             this.discoveryMode = 'p2p';
             this.logger.info('✅ P2P discovery initialized');
         } else {
-            throw new Error('Failed to initialize any discovery mechanism');
+            this.logger.info('Discovery mechanisms unavailable - running in direct mode only');
+            this.discoveryMode = "none";
+            // Don't throw error - allow running without discovery
         }
     }
 
@@ -74,7 +104,7 @@ export class HybridDiscovery extends EventEmitter {
             // Test connection
             const response = await this.registryClient.get(
                 `${this.config.registryUrl}/health`,
-                { timeout: 5000 }
+                { timeout: this.config.timeout || 1000 } // Use configurable timeout
             );
 
             if (response.status === 200) {
@@ -85,6 +115,15 @@ export class HybridDiscovery extends EventEmitter {
             this.logger.error('Failed to connect to central registry:', error);
             throw error;
         }
+    }
+
+    private withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+        return Promise.race([
+            promise,
+            new Promise<T>((_, reject) =>
+                setTimeout(() => reject(new Error(message)), ms)
+            )
+        ]);
     }
 
     private async initializeP2P(): Promise<void> {

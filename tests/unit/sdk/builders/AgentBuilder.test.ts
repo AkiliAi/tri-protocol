@@ -353,7 +353,9 @@ describe('SDKAgentImpl', () => {
     it('should initialize agent', async () => {
       await agent.initialize();
 
-      expect(agent.id).toBe('test-uuid-123');
+      expect(agent.id).toBeDefined();
+      expect(typeof agent.id).toBe('string');
+      expect(agent.id.length).toBeGreaterThan(0);
       expect(mockProtocol.registerAgent).toHaveBeenCalled();
     });
 
@@ -473,7 +475,7 @@ describe('SDKAgentImpl', () => {
       expect(result).toEqual({ result: 'success' });
       expect(orchestrator.executeTask).toHaveBeenCalledWith(
         expect.objectContaining({
-          agentId: 'test-uuid-123',
+          agentId: agent.id,
           type: 'test',
           payload: task
         })

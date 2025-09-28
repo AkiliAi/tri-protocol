@@ -1,8 +1,10 @@
 import { EventEmitter } from 'eventemitter3';
 import { TriAgent, TriWorkflow } from './core-types';
+import { MetricExporter } from '../metrics';
 
 export interface SDKConfig {
   mode?: 'development' | 'production';
+  simple?: boolean;  // Enable simple mode (no network features, minimal config)
 
   persistence?: {
     enabled?: boolean;
@@ -25,6 +27,13 @@ export interface SDKConfig {
     langgraph?: boolean | LangGraphConfig;
   };
 
+  metrics?: {
+    enabled?: boolean;
+    collectInterval?: number;
+    persistence?: 'memory' | 'redis' | 'prometheus';
+    exporters?: MetricExporter[];
+  };
+
   advanced?: {
     customConfig?: any;
     plugins?: Plugin[];
@@ -40,7 +49,10 @@ export interface SDKConfig {
 
 export interface A2AConfig {
   enabled: boolean;
-  discovery?: 'local' | 'registry' | 'hybrid';
+  lazy?: boolean;  // Enable lazy mode (skip network initialization)
+  discovery?: boolean | 'local' | 'registry' | 'hybrid';  // Support boolean or string
+  enableP2P?: boolean;  // Enable P2P discovery (default false)
+  discoveryTimeout?: number;  // Timeout for discovery operations
   security?: {
     auth?: 'none' | 'api-key' | 'oauth2' | 'mtls';
     encryption?: boolean;

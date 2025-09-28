@@ -71,10 +71,12 @@ export interface A2AProtocolConfig {
         retries?: number;
         discoveryInterval?: number;
     };
-    discovery?: boolean;
+    discovery?: boolean;  // Default false for lazy mode
     registryUrl?: string;
-    enableP2P?: boolean;
+    enableP2P?: boolean;  // Default false, must explicitly enable
     port?: number;
+    lazy?: boolean;  // Enable lazy mode (skip network initialization)
+    discoveryTimeout?: number;  // Timeout for discovery operations (default 1000ms)
 }
 
 interface SimpleTaskStatus {
@@ -155,14 +157,26 @@ export class A2AProtocol extends EventEmitter {
 
         });
 
-        if (config.discovery !== false) {
+        // Only initialize discovery if explicitly enabled (not by default)
+        if (config.discovery === true && !config.lazy) {
             this.discovery = new HybridDiscovery({
                 registryUrl: config.registryUrl || process.env.A2A_REGISTRY_URL,
-                enableP2P: config.enableP2P !== false,
+                enableP2P: config.enableP2P === true,  // Must explicitly enable P2P
                 agentCard: this.agentCard,
-                port: config.port || 8080
+                port: config.port || 8080,
+                timeout: config.discoveryTimeout || 1000,  // 1 second default timeout
+                lazy: config.lazy
             });
-            this.setupDiscovery();
+
+            // Initialize discovery asynchronously to avoid blocking
+            this.setupDiscovery().catch(error => {
+                this.logger.warn('Discovery initialization failed, continuing without discovery:', error.message);
+                // Don't throw - continue without discovery
+            });
+        } else if (config.lazy) {
+            this.logger.info('Lazy mode enabled - skipping discovery initialization');
+        } else {
+            this.logger.info('Discovery disabled - running in direct mode');
         }
 
 
